@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>API Sentinel Dashboard</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; background-color: #f4f4f4; }
+        .container { max-width: 900px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        h1 { color: #2c3e50; }
+        .form-group { margin-bottom: 20px; }
+        input[type="url"] { width: 70%; padding: 10px; }
+        button { padding: 10px 20px; background-color: #27ae60; color: white; border: none; cursor: pointer; }
+        button:hover { background-color: #219150; }
+        
+        .report-card { border: 1px solid #ddd; margin-top: 20px; padding: 15px; border-radius: 5px; }
+        .vuln { background-color: #ffe6e6; border-left: 5px solid #e74c3c; padding: 10px; margin: 5px 0; }
+        .safe { color: green; font-weight: bold; }
+        .badge-High { background: #e74c3c; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; }
+        .badge-Medium { background: #f39c12; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; }
+        .badge-Low { background: #3498db; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>API Sentinel Scanner</h1>
+    
+    <!-- Input Form -->
+    <div class="form-group">
+        <form method="post">
+            {% csrf_token %}
+            {{ form.target_url }}
+            <button type="submit">Scan API</button>
+        </form>
+    </div>
+
+    <hr>
+
+    <!-- Results List -->
+    <h2>Recent Scans</h2>
+    {% for report in reports %}
+        <div class="report-card">
+            <h3>Target: {{ report.target_url }}</h3>
+            <p><strong>Date:</strong> {{ report.scan_date }} | <strong>Status:</strong> {{ report.status }}</p>
+
+            <!-- Loop through vulnerabilities -->
+            {% if report.result_json.vulnerabilities %}
+                <h4>Vulnerabilities Found:</h4>
+                {% for vuln in report.result_json.vulnerabilities %}
+                    <div class="vuln">
+                        <span class="badge-{{ vuln.severity }}">{{ vuln.severity }}</span> 
+                        <strong>{{ vuln.name }}</strong><br>
+                        <small>{{ vuln.description }}</small>
+                    </div>
+                {% endfor %}
+            {% else %}
+                <p class="safe">No vulnerabilities found (or scan failed).</p>
+            {% endif %}
+
+            <!-- Show Endpoint Count -->
+            <p><small>Endpoints scanned: {{ report.result_json.endpoints|length }}</small></p>
+        </div>
+    {% empty %}
+        <p>No scans performed yet.</p>
+    {% endfor %}
+</div>
+
+</body>
+</html>
