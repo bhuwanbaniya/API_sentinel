@@ -3,6 +3,10 @@
 import os
 import sys
 
+# --- ADD THESE TWO LINES ---
+from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parent))
+# --- END OF ADDED LINES ---
 
 def main():
     """Run administrative tasks."""

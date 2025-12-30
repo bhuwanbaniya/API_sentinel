@@ -1,10 +1,18 @@
 from django import forms
-from .models import ScanReport
 
-class ScanForm(forms.ModelForm):
-    class Meta:
-        model = ScanReport
-        fields = ['target_url']
-        widgets = {
-            'target_url': forms.URLInput(attrs={'class': 'form-control', 'placeholder': 'Enter Swagger/OpenAPI URL'}),
-        }
+class APIScanForm(forms.Form):
+    target_url = forms.URLField(
+        required=False, 
+        label='Enter API/Swagger URL (or Base URL for file upload)',
+        widget=forms.URLInput(attrs={'size': '50', 'placeholder': 'http://127.0.0.1:3000/rest/api-docs/swagger.json'})
+    )
+    api_file = forms.FileField(
+        required=False,
+        label='Or Upload an OpenAPI/Swagger File'
+    )
+    # --- ADD  NEW FIELD ---
+    auth_header = forms.CharField(
+        required=False,
+        label='Authorization Header (e.g., "Authorization: Bearer your_token")',
+        widget=forms.TextInput(attrs={'size': '50', 'placeholder': 'Authorization: Bearer ey...'})
+    )

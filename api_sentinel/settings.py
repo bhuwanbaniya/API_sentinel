@@ -30,16 +30,20 @@ ALLOWED_HOSTS = []
 
 # Application definition
 
+# In api_sentinel/settings.py
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
-    'django.contrib.staticfiles',
-    'rest_framework',
-    'scanner',
+    'django.contrib.staticfiles', # <-- This is important
+    'scanner',                  # <-- Use the simple name
 ]
+
+ROOT_URLCONF = 'api_sentinel.urls'
+
+STATIC_URL = 'static/'
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
