@@ -1,0 +1,21 @@
+swagger: "2.0"
+info:
+  title: Damn Vulnerable Web Services
+  description: A vulnerable web services application for testing.
+  version: "1.0"
+host: "dvws.local" # This is a placeholder
+basePath: "/"
+schemes:
+  - "http"
+paths:
+  /vulnerabilities/sqli/:
+    get:
+      summary: "Vulnerable to SQL Injection"
+      parameters:
+        - name: "id"
+          in: "query"
+          required: true
+          type: "string"
+      responses:
+        '200':
+          description: "User details"

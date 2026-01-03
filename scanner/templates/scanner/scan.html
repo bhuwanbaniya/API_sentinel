@@ -1,0 +1,108 @@
+{% extends 'scanner/base.html' %}
+{% load static %}
+
+{% block title %}New Scan - API Sentinel{% endblock %}
+
+{% block content %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<div class="header">
+    <h1>Start a New Scan</h1>
+</div>
+
+<!-- The Form Card -->
+<div class="card">
+    {% if messages %}
+    <div class="messages">
+        {% for message in messages %}
+            <div class="alert alert-{{ message.tags }}" role="alert">{{ message }}</div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <!-- Your form inputs are here -->
+        <div style="margin-bottom: 1rem;"><label for="{{ form.target_url.id_for_label }}">{{ form.target_url.label }}</label>{{ form.target_url }}</div>
+        <p style="text-align: center; font-weight: bold; margin: 20px 0;">OR</p>
+        <div style="margin-bottom: 1.5rem;"><label for="{{ form.api_file.id_for_label }}">{{ form.api_file.label }}</label>{{ form.api_file }}</div>
+        <hr style="margin: 25px 0; border-color: var(--border-dark);">
+        <div style="margin-bottom: 1.5rem;"><label for="{{ form.auth_header.id_for_label }}">{{ form.auth_header.label }}</label>{{ form.auth_header }}</div>
+        <button type="submit">Scan API</button>
+    </form>
+</div>
+
+<!-- --- NEW: Results Section --- -->
+{% if latest_report %}
+<hr style="border-color: var(--border-dark); margin: 2rem 0;">
+<div class="header">
+    <h2>Most Recent Scan Result</h2>
+</div>
+
+<div class="card">
+    <h3>Target: {{ latest_report.target_url }}</h3>
+    <p><strong>Date:</strong> {{ latest_report.scan_date }} | <strong>Status:</strong> {{ latest_report.status }}</p>
+</div>
+
+<div class="dashboard-grid">
+    <div class="findings-card">
+        <h2>All Findings in this Scan</h2>
+        {% if latest_report.result_json.vulnerabilities %}
+            {% for vuln in latest_report.result_json.vulnerabilities %}
+                <div class="vuln">
+                    <span class="badge badge-{{ vuln.severity }}">{{ vuln.severity }}</span> 
+                    <strong>{{ vuln.name }}</strong><br>
+                    <small>{{ vuln.description }}</small>
+                </div>
+            {% endfor %}
+        {% elif latest_report.status == "Success" %}
+            <p class="safe">✅ No vulnerabilities found in this scan.</p>
+        {% elif latest_report.result_json.error %}
+            <p style="color: red;"><strong>Scan Error:</strong> {{ latest_report.result_json.error }}</p>
+        {% endif %}
+    </div>
+
+    <div class="chart-card">
+        <h2>Vulnerability Summary</h2>
+        <div class="chart-container">
+            <canvas id="vulnerabilityChart"></canvas>
+        </div>
+    </div>
+</div>
+
+{{ chart_data|json_script:"chart-data" }}
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const chartData = JSON.parse(document.getElementById('chart-data').textContent);
+        const ctx = document.getElementById('vulnerabilityChart').getContext('2d');
+        
+        if (chartData.data && chartData.data.length > 0) {
+            new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: chartData.labels,
+                    datasets: [{
+                        data: chartData.data,
+                        backgroundColor: chartData.colors,
+                        borderColor: 'var(--card-dark)',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'bottom', labels: { color: 'var(--text-primary)' }}}
+                }
+            });
+        } else {
+            ctx.font = "16px sans-serif";
+            ctx.fillStyle = 'var(--text-secondary)';
+            ctx.textAlign = 'center';
+            ctx.fillText("No vulnerability data to display.", ctx.canvas.width / 2, ctx.canvas.height / 2);
+        }
+    });
+</script>
+{% endif %}
+<!-- --- END OF NEW RESULTS SECTION --- -->
+{% endblock %}

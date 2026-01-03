@@ -1,0 +1,128 @@
+{% extends 'scanner/base.html' %}
+{% load static %}
+
+{% block title %}Dashboard - API Sentinel{% endblock %}
+
+{% block content %}
+<!-- Include the Chart.js library from a CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<div class="header">
+    <h1>Security Analytics</h1>
+    <div class="risk-badge risk-{{ overall_risk|lower }}">Risk: {{ overall_risk }}</div>
+</div>
+
+<!-- Main Stats Grid -->
+<div class="stats-grid">
+    <div class="stat-card">
+        <h4>Total Vulnerabilities</h4>
+        <p>{{ total_vulnerabilities }}</p>
+    </div>
+    <div class="stat-card">
+        <h4>Endpoints Scanned (Max)</h4>
+        <p>{{ total_endpoints }}</p>
+    </div>
+    <div class="stat-card stat-card-risk-{{ overall_risk|lower }}">
+        <h4>Risk Score</h4>
+        <p>{{ risk_score }}/10</p>
+    </div>
+</div>
+
+<!-- Grid for Chart and Critical Findings -->
+<div class="dashboard-grid">
+    <div class="findings-card">
+        <h2>Critical Security Findings</h2>
+        <table class="findings-table">
+            <thead>
+                <tr>
+                    <th>Finding</th>
+                    <th>Severity</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for finding in critical_findings %}
+                <tr>
+                    <td>{{ finding.name }} at <strong>{{ finding.path|truncatechars:40 }}</strong></td>
+                    <td><span class="badge badge-{{ finding.severity }}">{{ finding.severity }}</span></td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="2" style="text-align: center; padding: 2rem;">No High or Critical severity findings found.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="chart-card">
+        <h2>Vulnerability Summary</h2>
+        <div class="chart-container">
+            <canvas id="vulnerabilityChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<!-- --- NEW SECTION FOR RECENT SCAN REPORTS --- -->
+<div class="findings-card" style="margin-top: 2rem;">
+    <h2>Recent Scan Reports</h2>
+    
+    {% for report in reports %} <!-- This 'reports' variable comes from your view -->
+        <div class="report-summary">
+            <strong>Target: {{ report.target_url|truncatechars:60 }}</strong>
+            <p style="margin: 0.5rem 0 0 0; font-size: 0.9em; color: var(--text-secondary);">
+                {{ report.scan_date|date:"Y-m-d H:i" }} | 
+                Status: 
+                {% if report.status == "Success" %}
+                    <span style="color: var(--success-color); font-weight: 600;">{{ report.status }}</span>
+                {% else %}
+                    <span style="color: var(--danger-high); font-weight: 600;">{{ report.status }}</span>
+                {% endif %}
+                 | Vulnerabilities: {{ report.result_json.vulnerabilities|length|default:0 }}
+            </p>
+        </div>
+    {% empty %}
+        <p>No scans have been performed yet.</p>
+    {% endfor %}
+</div>
+<!-- --- END OF NEW SECTION --- -->
+
+
+<!-- Pass data from Django to JavaScript in a hidden script tag -->
+{{ chart_data|json_script:"chart-data" }}
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const chartData = JSON.parse(document.getElementById('chart-data').textContent);
+        const ctx = document.getElementById('vulnerabilityChart').getContext('2d');
+        if (chartData.data && chartData.data.length > 0) {
+            new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: chartData.labels,
+                    datasets: [{
+                        data: chartData.data,
+                        backgroundColor: chartData.labels.map(label => {
+                            if (label === 'High') return 'rgba(217, 83, 79, 0.8)';
+                            if (label === 'Medium') return 'rgba(240, 173, 78, 0.8)';
+                            if (label === 'Low') return 'rgba(91, 192, 222, 0.8)';
+                            return '#808080';
+                        }),
+                        borderColor: 'var(--card-dark)',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'bottom', labels: { color: 'var(--text-primary)' }}}
+                }
+            });
+        } else {
+            ctx.font = "16px sans-serif";
+            ctx.fillStyle = 'var(--text-secondary)';
+            ctx.textAlign = 'center';
+            ctx.fillText("No vulnerability data to display.", ctx.canvas.width / 2, ctx.canvas.height / 2);
+        }
+    });
+</script>
+{% endblock %}

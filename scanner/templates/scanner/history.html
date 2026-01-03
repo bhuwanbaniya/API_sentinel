@@ -1,0 +1,58 @@
+{% extends 'scanner/base.html' %}
+
+{% block title %}Scan History - API Sentinel{% endblock %}
+
+{% block content %}
+<div class="header">
+    <h1>Scan History</h1>
+</div>
+
+<div class="card">
+    <table class="history-table">
+        <thead>
+            <tr>
+                <th>Target</th>
+                <th>Date</th>
+                <th>Status</th>
+                <th>Vulnerabilities Found</th>
+                <th>Endpoints</th>
+            </tr>
+        </thead>
+        <!-- In history.html -->
+<!-- In templates/scanner/history.html -->
+
+<!-- In history.html -->
+<<!-- In templates/scanner/history.html -->
+
+<tbody>
+    {% for report in all_reports %}
+    <tr style="cursor: pointer;" onclick="window.location='{% url 'report_detail' report.id %}';">
+        <td>{{ report.target_url }}</td>
+        <td>{{ report.scan_date|date:"Y-m-d H:i" }}</td>
+        <td>
+            {% if report.status == "Success" %}
+                <span class="status-success">{{ report.status }}</span>
+            {% else %}
+                <span class="status-failed">{{ report.status }}</span>
+            {% endif %}
+        </td>
+        <td>{{ report.result_json.vulnerabilities|length|default:0 }}</td>
+        <td>{{ report.result_json.endpoints|length|default:0 }}</td>
+        <td>
+            <!-- --- THIS IS THE FIX --- -->
+            <!-- We add onclick="event.stopPropagation();" to the form -->
+            <form method="post" action="{% url 'delete_report' report.id %}" onsubmit="return confirm('Are you sure you want to delete this report?');" onclick="event.stopPropagation();">
+                {% csrf_token %}
+                <button type="submit" class="delete-button">Delete</button>
+            </form>
+        </td>
+    </tr>
+    {% empty %}
+    <tr>
+        <td colspan="6" style="text-align: center; padding: 2rem;">No scan history found.</td>
+    </tr>
+    {% endfor %}
+</tbody>
+    </table>
+</div>
+{% endblock %}
