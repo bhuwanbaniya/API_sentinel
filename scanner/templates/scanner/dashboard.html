@@ -1,128 +1,106 @@
 {% extends 'scanner/base.html' %}
-{% load static %}
-
-{% block title %}Dashboard - API Sentinel{% endblock %}
 
 {% block content %}
-<!-- Include the Chart.js library from a CDN -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <div class="header">
-    <h1>Security Analytics</h1>
+    <h1>Security Operations Center</h1>
     <div class="risk-badge risk-{{ overall_risk|lower }}">Risk: {{ overall_risk }}</div>
 </div>
 
-<!-- Main Stats Grid -->
+<!-- Stats -->
 <div class="stats-grid">
-    <div class="stat-card">
-        <h4>Total Vulnerabilities</h4>
-        <p>{{ total_vulnerabilities }}</p>
-    </div>
-    <div class="stat-card">
-        <h4>Endpoints Scanned (Max)</h4>
-        <p>{{ total_endpoints }}</p>
-    </div>
-    <div class="stat-card stat-card-risk-{{ overall_risk|lower }}">
-        <h4>Risk Score</h4>
-        <p>{{ risk_score }}/10</p>
-    </div>
+    <div class="stat-card"><h4>Total Vulns</h4><p>{{ total_vulnerabilities }}</p></div>
+    <div class="stat-card"><h4>Max Endpoints</h4><p>{{ total_endpoints }}</p></div>
+    <div class="stat-card"><h4>Security Score</h4><p>{{ risk_score }}/10</p></div>
 </div>
 
-<!-- Grid for Chart and Critical Findings -->
-<div class="dashboard-grid">
-    <div class="findings-card">
-        <h2>Critical Security Findings</h2>
-        <table class="findings-table">
-            <thead>
-                <tr>
-                    <th>Finding</th>
-                    <th>Severity</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for finding in critical_findings %}
-                <tr>
-                    <td>{{ finding.name }} at <strong>{{ finding.path|truncatechars:40 }}</strong></td>
-                    <td><span class="badge badge-{{ finding.severity }}">{{ finding.severity }}</span></td>
-                </tr>
-                {% empty %}
-                <tr>
-                    <td colspan="2" style="text-align: center; padding: 2rem;">No High or Critical severity findings found.</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-
+<!-- TOP CHARTS ROW -->
+<div class="dashboard-grid" style="margin-bottom: 2rem;">
+    <!-- Line Chart (Trend) -->
     <div class="chart-card">
-        <h2>Vulnerability Summary</h2>
-        <div class="chart-container">
-            <canvas id="vulnerabilityChart"></canvas>
+        <h2>Vulnerability Trend (Last 7 Days)</h2>
+        <div class="chart-container" style="height: 250px;">
+            <canvas id="trendChart"></canvas>
+        </div>
+    </div>
+
+    <!-- Doughnut Chart (Severity) -->
+    <div class="chart-card">
+        <h2>Severity Distribution</h2>
+        <div class="chart-container" style="height: 250px;">
+            <canvas id="severityChart"></canvas>
         </div>
     </div>
 </div>
 
-<!-- --- NEW SECTION FOR RECENT SCAN REPORTS --- -->
-<div class="findings-card" style="margin-top: 2rem;">
-    <h2>Recent Scan Reports</h2>
-    
-    {% for report in reports %} <!-- This 'reports' variable comes from your view -->
-        <div class="report-summary">
-            <strong>Target: {{ report.target_url|truncatechars:60 }}</strong>
-            <p style="margin: 0.5rem 0 0 0; font-size: 0.9em; color: var(--text-secondary);">
-                {{ report.scan_date|date:"Y-m-d H:i" }} | 
-                Status: 
-                {% if report.status == "Success" %}
-                    <span style="color: var(--success-color); font-weight: 600;">{{ report.status }}</span>
-                {% else %}
-                    <span style="color: var(--danger-high); font-weight: 600;">{{ report.status }}</span>
-                {% endif %}
-                 | Vulnerabilities: {{ report.result_json.vulnerabilities|length|default:0 }}
-            </p>
-        </div>
-    {% empty %}
-        <p>No scans have been performed yet.</p>
-    {% endfor %}
+<!-- Findings Table -->
+<div class="findings-card">
+    <h2>Critical Security Findings</h2>
+    <table class="findings-table">
+        <thead><tr><th>Finding</th><th>Severity</th></tr></thead>
+        <tbody>
+            {% for f in critical_findings %}
+            <tr>
+                <td>{{ f.name }} at <strong>{{ f.target|truncatechars:30 }}</strong></td>
+                <td><span class="badge badge-{{ f.severity }}">{{ f.severity }}</span></td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="2">No high-risk findings.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
 </div>
-<!-- --- END OF NEW SECTION --- -->
 
-
-<!-- Pass data from Django to JavaScript in a hidden script tag -->
-{{ chart_data|json_script:"chart-data" }}
+<!-- DATA FOR JS -->
+{{ chart_data|json_script:"severity-data" }}
+{{ trend_data|json_script:"trend-data" }}
 
 <script>
-    document.addEventListener('DOMContentLoaded', function () {
-        const chartData = JSON.parse(document.getElementById('chart-data').textContent);
-        const ctx = document.getElementById('vulnerabilityChart').getContext('2d');
-        if (chartData.data && chartData.data.length > 0) {
-            new Chart(ctx, {
-                type: 'doughnut',
-                data: {
-                    labels: chartData.labels,
-                    datasets: [{
-                        data: chartData.data,
-                        backgroundColor: chartData.labels.map(label => {
-                            if (label === 'High') return 'rgba(217, 83, 79, 0.8)';
-                            if (label === 'Medium') return 'rgba(240, 173, 78, 0.8)';
-                            if (label === 'Low') return 'rgba(91, 192, 222, 0.8)';
-                            return '#808080';
-                        }),
-                        borderColor: 'var(--card-dark)',
-                        borderWidth: 2
-                    }]
+    document.addEventListener('DOMContentLoaded', function() {
+        // --- 1. Severity Doughnut Chart ---
+        const sevData = JSON.parse(document.getElementById('severity-data').textContent);
+        new Chart(document.getElementById('severityChart'), {
+            type: 'doughnut',
+            data: {
+                labels: sevData.labels,
+                datasets: [{
+                    data: sevData.data,
+                    backgroundColor: ['#f85149', '#f0ad4e', '#58a6ff'],
+                    borderWidth: 0
+                }]
+            },
+            options: { responsive: true, maintainAspectRatio: false, cutout: '70%', 
+                plugins: { legend: { position: 'bottom', labels: { color: '#8b949e' } } }
+            }
+        });
+
+        // --- 2. Trend Line Chart ---
+        const trendData = JSON.parse(document.getElementById('trend-data').textContent);
+        new Chart(document.getElementById('trendChart'), {
+            type: 'line',
+            data: {
+                labels: trendData.labels,
+                datasets: [{
+                    label: 'Vulnerabilities',
+                    data: trendData.data,
+                    borderColor: '#58a6ff',
+                    backgroundColor: 'rgba(88, 166, 255, 0.1)',
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 5
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { beginAtZero: true, ticks: { color: '#8b949e' }, grid: { color: '#30363d' } },
+                    x: { ticks: { color: '#8b949e' }, grid: { display: false } }
                 },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { legend: { position: 'bottom', labels: { color: 'var(--text-primary)' }}}
-                }
-            });
-        } else {
-            ctx.font = "16px sans-serif";
-            ctx.fillStyle = 'var(--text-secondary)';
-            ctx.textAlign = 'center';
-            ctx.fillText("No vulnerability data to display.", ctx.canvas.width / 2, ctx.canvas.height / 2);
-        }
+                plugins: { legend: { display: false } }
+            }
+        });
     });
 </script>
 {% endblock %}
