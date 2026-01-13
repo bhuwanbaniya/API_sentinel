@@ -1,0 +1,63 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "VAmPI",
+    "description": "Vulnerable API for security testing",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "paths": {
+    "/users/v1": {
+      "get": {
+        "summary": "Get all users (Broken Auth Vulnerability)",
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          }
+        }
+      }
+    },
+    "/books/v1": {
+      "get": {
+        "summary": "Get all books",
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          }
+        }
+      },
+      "post": {
+        "summary": "Add a book (Broken Auth Vulnerability)",
+        "responses": {
+          "200": {
+            "description": "Book created"
+          }
+        }
+      }
+    },
+    "/users/v1/{username}": {
+      "get": {
+        "summary": "Get specific user (BOLA Vulnerability)",
+        "parameters": [
+          {
+            "name": "username",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User details"
+          }
+        }
+      }
+    }
+  }
+}

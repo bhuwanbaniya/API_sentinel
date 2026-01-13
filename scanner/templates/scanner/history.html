@@ -1,0 +1,52 @@
+{% extends 'scanner/base.html' %}
+
+{% block title %}History - API Sentinel{% endblock %}
+
+{% block content %}
+<div class="header">
+    <h1>Scan History</h1>
+</div>
+
+<div class="card">
+    <table class="history-table">
+        <thead>
+            <tr>
+                <th>Target URL</th>
+                <th>Date</th>
+                <th>Status</th>
+                <th>Vulnerabilities</th>
+                <th>Endpoints</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for report in all_reports %}
+            <!-- Clicking the row takes you to the single result view -->
+            <tr style="cursor: pointer;" onclick="window.location='{% url 'report_detail' report.id %}';">
+                <td title="{{ report.target_url }}">{{ report.target_url|truncatechars:35 }}</td>
+                <td>{{ report.scan_date|date:"Y-m-d H:i" }}</td>
+                <td>
+                    {% if report.status == "Success" %}
+                        <span class="status-success">{{ report.status }}</span>
+                    {% else %}
+                        <span class="status-failed">{{ report.status }}</span>
+                    {% endif %}
+                </td>
+                <td><strong>{{ report.result_json.vulnerabilities|length|default:0 }}</strong></td>
+                <td>{{ report.result_json.endpoints|length|default:0 }}</td>
+                <td>
+                    <form method="post" action="{% url 'delete_report' report.id %}" onsubmit="return confirm('Delete this report?');" onclick="event.stopPropagation();">
+                        {% csrf_token %}
+                        <button type="submit" class="delete-button">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="6" style="text-align: center; padding: 3rem; color: var(--text-secondary);">No scan history found.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
