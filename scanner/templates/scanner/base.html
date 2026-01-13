@@ -1,0 +1,34 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}API Sentinel{% endblock %}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" type="text/css" href="{% static 'scanner/style.css' %}">
+</head>
+<body>
+    <div class="app-container">
+        <nav class="sidebar">
+            <div class="sidebar-header">
+                <h2>API SENTINEL</h2>
+            </div>
+            <ul class="sidebar-menu">
+                <li class="{% if request.path == '/' %}active{% endif %}">
+                    <a href="{% url 'dashboard' %}">Dashboard</a>
+                </li>
+                <li class="{% if '/scan/' in request.path %}active{% endif %}">
+                    <a href="{% url 'new_scan' %}">New Scan</a>
+                </li>
+                <li class="{% if '/history/' in request.path %}active{% endif %}">
+                    <a href="{% url 'scan_history' %}">Scan History</a>
+                </li>
+                <li><a href="#">Settings</a></li>
+            </ul>
+        </nav>
+        <main class="main-content">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+</body>
+</html>

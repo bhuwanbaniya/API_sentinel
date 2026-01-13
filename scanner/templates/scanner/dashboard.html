@@ -1,0 +1,106 @@
+{% extends 'scanner/base.html' %}
+
+{% block content %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<div class="header">
+    <h1>Security Operations Center</h1>
+    <div class="risk-badge risk-{{ overall_risk|lower }}">Risk: {{ overall_risk }}</div>
+</div>
+
+<!-- Stats -->
+<div class="stats-grid">
+    <div class="stat-card"><h4>Total Vulns</h4><p>{{ total_vulnerabilities }}</p></div>
+    <div class="stat-card"><h4>Max Endpoints</h4><p>{{ total_endpoints }}</p></div>
+    <div class="stat-card"><h4>Security Score</h4><p>{{ risk_score }}/10</p></div>
+</div>
+
+<!-- TOP CHARTS ROW -->
+<div class="dashboard-grid" style="margin-bottom: 2rem;">
+    <!-- Line Chart (Trend) -->
+    <div class="chart-card">
+        <h2>Vulnerability Trend (Last 7 Days)</h2>
+        <div class="chart-container" style="height: 250px;">
+            <canvas id="trendChart"></canvas>
+        </div>
+    </div>
+
+    <!-- Doughnut Chart (Severity) -->
+    <div class="chart-card">
+        <h2>Severity Distribution</h2>
+        <div class="chart-container" style="height: 250px;">
+            <canvas id="severityChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<!-- Findings Table -->
+<div class="findings-card">
+    <h2>Critical Security Findings</h2>
+    <table class="findings-table">
+        <thead><tr><th>Finding</th><th>Severity</th></tr></thead>
+        <tbody>
+            {% for f in critical_findings %}
+            <tr>
+                <td>{{ f.name }} at <strong>{{ f.target|truncatechars:30 }}</strong></td>
+                <td><span class="badge badge-{{ f.severity }}">{{ f.severity }}</span></td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="2">No high-risk findings.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- DATA FOR JS -->
+{{ chart_data|json_script:"severity-data" }}
+{{ trend_data|json_script:"trend-data" }}
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // --- 1. Severity Doughnut Chart ---
+        const sevData = JSON.parse(document.getElementById('severity-data').textContent);
+        new Chart(document.getElementById('severityChart'), {
+            type: 'doughnut',
+            data: {
+                labels: sevData.labels,
+                datasets: [{
+                    data: sevData.data,
+                    backgroundColor: ['#f85149', '#f0ad4e', '#58a6ff'],
+                    borderWidth: 0
+                }]
+            },
+            options: { responsive: true, maintainAspectRatio: false, cutout: '70%', 
+                plugins: { legend: { position: 'bottom', labels: { color: '#8b949e' } } }
+            }
+        });
+
+        // --- 2. Trend Line Chart ---
+        const trendData = JSON.parse(document.getElementById('trend-data').textContent);
+        new Chart(document.getElementById('trendChart'), {
+            type: 'line',
+            data: {
+                labels: trendData.labels,
+                datasets: [{
+                    label: 'Vulnerabilities',
+                    data: trendData.data,
+                    borderColor: '#58a6ff',
+                    backgroundColor: 'rgba(88, 166, 255, 0.1)',
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 5
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { beginAtZero: true, ticks: { color: '#8b949e' }, grid: { color: '#30363d' } },
+                    x: { ticks: { color: '#8b949e' }, grid: { display: false } }
+                },
+                plugins: { legend: { display: false } }
+            }
+        });
+    });
+</script>
+{% endblock %}
