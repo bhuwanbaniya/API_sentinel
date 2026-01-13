@@ -1,0 +1,109 @@
+{% extends 'scanner/base.html' %}
+
+{% block title %}New Scan - API Sentinel{% endblock %}
+
+{% block content %}
+<div class="header">
+    <h1>Start a New Scan</h1>
+</div>
+
+<div class="card">
+    <!-- Display Messages (Success/Error) -->
+    {% if messages %}
+    <div class="messages">
+        {% for message in messages %}
+            <div class="alert alert-{{ message.tags }}" role="alert" style="margin-bottom: 20px; padding: 10px; background: rgba(255,0,0,0.1); border: 1px solid red; color: red; border-radius: 4px;">
+                {{ message }}
+            </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    
+    <!-- The Scan Form -->
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        
+        <!-- Target Inputs -->
+        <div style="margin-bottom: 1.5rem;">
+            <label style="display:block; margin-bottom:8px; font-weight:bold; color: var(--text-primary);">{{ form.target_url.label }}</label>
+            {{ form.target_url }}
+        </div>
+        
+        <p style="text-align: center; font-weight: bold; margin: 20px 0; color: var(--text-secondary);">OR</p>
+        
+        <div style="margin-bottom: 1.5rem;">
+            <label style="display:block; margin-bottom:8px; font-weight:bold; color: var(--text-primary);">{{ form.api_file.label }}</label>
+            {{ form.api_file }}
+        </div>
+        
+        <hr style="margin: 25px 0; border-color: var(--border-dark);">
+        
+        <!-- Auth Input -->
+        <div style="margin-bottom: 1.5rem;">
+            <label style="display:block; margin-bottom:8px; font-weight:bold; color: var(--text-primary);">{{ form.auth_header.label }}</label>
+            {{ form.auth_header }}
+        </div>
+
+        <hr style="margin: 25px 0; border-color: var(--border-dark);">
+
+        <!-- Advanced Configuration (Checkboxes) -->
+        <h3 style="color: var(--text-primary); font-size: 1.1rem; margin-bottom: 15px;">Scan Configuration (Select Modules)</h3>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+            <div style="background: var(--bg-dark); padding: 15px; border-radius: 6px; border: 1px solid var(--border-dark); display: flex; align-items: center;">
+                {{ form.scan_broken_auth }} 
+                <span style="margin-left: 10px; color: var(--text-primary);">{{ form.scan_broken_auth.label }}</span>
+            </div>
+            
+            <div style="background: var(--bg-dark); padding: 15px; border-radius: 6px; border: 1px solid var(--border-dark); display: flex; align-items: center;">
+                {{ form.scan_bola }} 
+                <span style="margin-left: 10px; color: var(--text-primary);">{{ form.scan_bola.label }}</span>
+            </div>
+            
+            <div style="background: var(--bg-dark); padding: 15px; border-radius: 6px; border: 1px solid var(--border-dark); display: flex; align-items: center;">
+                {{ form.scan_injection }} 
+                <span style="margin-left: 10px; color: var(--text-primary);">{{ form.scan_injection.label }}</span>
+            </div>
+            
+            <div style="background: var(--bg-dark); padding: 15px; border-radius: 6px; border: 1px solid var(--border-dark); display: flex; align-items: center;">
+                {{ form.scan_ratelimit }} 
+                <span style="margin-left: 10px; color: var(--text-primary);">{{ form.scan_ratelimit.label }}</span>
+            </div>
+        </div>
+
+        <br>
+        <button type="submit" style="width: 100%; padding: 12px; font-size: 1.1rem; margin-top: 10px; background-color: var(--primary-accent); color: white; border: none; border-radius: 4px; cursor: pointer;">Start Comprehensive Scan</button>
+    </form>
+</div>
+
+<!-- Recent Scans List (Added to Bottom) -->
+<div class="findings-card" style="margin-top: 2rem;">
+    <h2>Recent Scans</h2>
+    <table class="history-table">
+        <thead>
+            <tr>
+                <th>Target</th>
+                <th>Status</th>
+                <th>Date</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for report in recent_reports %}
+            <tr style="cursor: pointer;" onclick="window.location='{% url 'report_detail' report.id %}';">
+                <td>{{ report.target_url|truncatechars:60 }}</td>
+                <td>
+                    {% if report.status == "Success" %}
+                        <span style="color: #28a745; font-weight: bold;">Success</span>
+                    {% else %}
+                        <span style="color: #dc3545; font-weight: bold;">{{ report.status }}</span>
+                    {% endif %}
+                </td>
+                <td>{{ report.scan_date|date:"M d, H:i" }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="3" style="text-align: center; padding: 1rem;">No scans performed yet.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

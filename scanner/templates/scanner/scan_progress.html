@@ -1,0 +1,92 @@
+{% extends 'scanner/base.html' %}
+
+{% block title %}Scanning... - API Sentinel{% endblock %}
+
+{% block content %}
+<div class="header">
+    <h1>Scan in Progress</h1>
+    <div class="risk-badge" style="background: #3498db; color: white;">RUNNING</div>
+</div>
+
+<div class="card" style="background: #0d1117; border: 1px solid #30363d;">
+    <h3 style="color: #c9d1d9;">Target: {{ report.target_url }}</h3>
+    
+    <div style="display: flex; align-items: center; margin-bottom: 10px;">
+        <span class="loader"></span>
+        <span id="scan-status" style="color: #58a6ff; font-weight: bold; margin-left: 10px; font-family: monospace; font-size: 1.2rem;">INITIALIZING...</span>
+    </div>
+    
+    <!-- LIVE TERMINAL WINDOW -->
+    <div id="terminal-window" style="
+        background-color: #000000; 
+        color: #00ff41; 
+        font-family: 'Consolas', 'Courier New', monospace; 
+        padding: 20px; 
+        border-radius: 6px; 
+        height: 450px; 
+        overflow-y: auto; 
+        border: 1px solid #333;
+        box-shadow: 0 0 20px rgba(0, 255, 65, 0.1);
+        font-size: 0.9rem;
+        line-height: 1.5;
+    ">
+        <div id="log-content">_</div>
+    </div>
+</div>
+
+<!-- Styles for the Loader and Terminal -->
+<style>
+    #terminal-window::-webkit-scrollbar { width: 8px; }
+    #terminal-window::-webkit-scrollbar-track { background: #000; }
+    #terminal-window::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+    
+    .loader {
+        width: 20px; height: 20px;
+        border: 3px solid #58a6ff;
+        border-bottom-color: transparent;
+        border-radius: 50%;
+        display: inline-block;
+        animation: rotation 1s linear infinite;
+    }
+    @keyframes rotation { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+</style>
+
+<!-- JAVASCRIPT FOR POLLING & REDIRECT -->
+<script>
+    const reportId = "{{ report.id }}";
+    const logDiv = document.getElementById('log-content');
+    const terminal = document.getElementById('terminal-window');
+    const statusSpan = document.getElementById('scan-status');
+
+    function checkProgress() {
+        fetch(`/api/scan-status/${reportId}/`)
+            .then(response => response.json())
+            .then(data => {
+                // 1. Update Status Text
+                statusSpan.textContent = data.status.toUpperCase();
+
+                // 2. Update Log Content
+                if (data.log && data.log.length > 0) {
+                    logDiv.innerHTML = data.log.join('<br>') + '<br><span class="cursor">_</span>';
+                    // Auto-scroll to the bottom to see new logs
+                    terminal.scrollTop = terminal.scrollHeight;
+                }
+
+                // 3. Check if Finished (Success or Failed)
+                if (data.status === 'Success' || data.status === 'Failed') {
+                    // Wait 1 second, then Redirect to the REPORT DETAIL page
+                    setTimeout(() => {
+                        window.location.href = `/history/${reportId}/`; 
+                    }, 1000); 
+                } else {
+                    // If still running, check again in 1 second
+                    setTimeout(checkProgress, 1000);
+                }
+            })
+            .catch(error => console.error('Error:', error));
+    }
+
+    // Start polling immediately
+    checkProgress();
+</script>
+{% endblock %}
