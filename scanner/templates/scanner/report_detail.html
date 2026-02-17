@@ -35,12 +35,35 @@
         <h2>Vulnerabilities ({{ vulnerabilities|length }})</h2>
         <div style="max-height: 500px; overflow-y: auto; padding-right: 10px;">
             {% for vuln in vulnerabilities %}
-                <div class="vuln" style="background: rgba(255,255,255,0.03); padding: 1rem; border-left: 4px solid 
+                <div class="vuln" style="background: rgba(255,255,255,0.03); padding: 1.5rem; border-left: 4px solid 
                     {% if vuln.severity == 'High' %}#f85149{% elif vuln.severity == 'Medium' %}#f0ad4e{% else %}#58a6ff{% endif %}; 
-                    margin-bottom: 10px; border-radius: 4px;">
-                    <span class="badge badge-{{ vuln.severity }}">{{ vuln.severity }}</span>
-                    <strong style="margin-left: 10px;">{{ vuln.name }}</strong>
-                    <p style="font-size: 0.85rem; color: var(--text-secondary); margin: 8px 0 0 0;">{{ vuln.description }}</p>
+                    margin-bottom: 20px; border-radius: 6px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
+                    
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <div>
+                            <span class="badge badge-{{ vuln.severity }}">{{ vuln.severity }}</span>
+                            <strong style="margin-left: 10px; font-size: 1.1rem;">{{ vuln.name }}</strong>
+                        </div>
+                    </div>
+                    
+                    <p style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 15px;">{{ vuln.description }}</p>
+
+                    <!-- --- NEW REMEDIATION BOX --- -->
+                    {% if vuln.advice %}
+                    <div style="background: #0d1117; border: 1px solid #30363d; border-radius: 6px; overflow: hidden; margin-top: 15px;">
+                        <div style="background: #161b22; padding: 8px 15px; border-bottom: 1px solid #30363d; font-size: 0.85rem; font-weight: bold; color: #58a6ff; display: flex; align-items: center;">
+                            <span style="margin-right: 8px;">💡</span> Remediation Guide
+                        </div>
+                        <div style="padding: 15px;">
+                            <p style="color: #c9d1d9; font-size: 0.9rem; margin-top: 0; margin-bottom: 10px;">{{ vuln.advice }}</p>
+                            {% if vuln.code %}
+                            <pre style="background: #000; color: #28a745; padding: 15px; border-radius: 4px; overflow-x: auto; font-family: 'Consolas', 'Courier New', monospace; font-size: 0.85rem; margin: 0; border: 1px solid #333;">{{ vuln.code }}</pre>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endif %}
+                    <!-- ----------------------------- -->
+
                 </div>
             {% endfor %}
         </div>

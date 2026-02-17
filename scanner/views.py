@@ -1,8 +1,11 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
+from .remediation import get_remediation
 from django.utils import timezone
 from datetime import timedelta
 from django.http import HttpResponse, JsonResponse
+from django.core.mail import send_mail
+from django.conf import settings
 from .forms import APIScanForm
 from .models import ScanReport
 from .scan_engine import start_scan, fetch_swagger_from_url
@@ -19,43 +22,64 @@ import io
 # ==============================================================================
 def run_scan_in_background(report_id, spec_content, base_url, auth_headers, scan_options):
     try:
-        # Define a logger that updates the database
         def db_logger(msg):
-            # We must re-fetch the object inside the thread to avoid stale data
             try:
                 r = ScanReport.objects.get(id=report_id)
                 current_log = r.result_json.get('scan_log', [])
                 current_log.append(msg)
-                # Initialize result_json if it doesn't exist to prevent errors
                 if not r.result_json: r.result_json = {}
                 r.result_json['scan_log'] = current_log
                 r.save()
-            except Exception as log_err:
-                print(f"Logging error: {log_err}")
+            except Exception: pass
 
-        # Run the actual scan engine with options
-        results = start_scan(spec_content, base_url, auth_headers, scan_options, logger=db_logger)
+        # --- UPDATE: PASS REPORT_ID HERE ---
+        results = start_scan(spec_content, base_url, auth_headers, scan_options, logger=db_logger, report_id=report_id)
         
-        # Save final results
         report = ScanReport.objects.get(id=report_id)
         
-        # Preserve the log
+        # --- UPDATE: CHECK STOPPED STATUS ---
+        if report.status == "Stopped":
+            return # Don't overwrite stopped status
+
         scan_log = report.result_json.get('scan_log', [])
         results['scan_log'] = scan_log 
         
         report.result_json = results
         report.status = results.get("status", "Failed")
         report.save()
+
+        # Email Logic
+        vulnerabilities = results.get('vulnerabilities', [])
+        high_risk_count = sum(1 for v in vulnerabilities if v.get('severity') == 'High')
+
+        if high_risk_count > 0:
+            subject = f"ALERT: High Severity Vulnerabilities Detected in {report.target_url}"
+            message = f"""
+            API Sentinel Alert System
+            -------------------------
+            Scan Target: {report.target_url}
+            Scan Date: {report.scan_date}
+            CRITICAL ALERT:
+            The scanner detected {high_risk_count} High Severity vulnerabilities.
+            Please check the dashboard immediately for details.
+            """
+            print(">>> SENDING ALERT EMAIL (Check Console)...") 
+            try:
+                send_mail(subject, message, settings.EMAIL_HOST_USER, ['admin@example.com'], fail_silently=False)
+            except Exception as mail_err:
+                print(f"Mail Error: {mail_err}")
         
     except Exception as e:
         print(f"Background Task Error: {e}")
-        r = ScanReport.objects.get(id=report_id)
-        r.status = "Failed"
-        if not r.result_json: r.result_json = {}
-        log = r.result_json.get('scan_log', [])
-        log.append(f"CRITICAL ERROR: {str(e)}")
-        r.result_json['scan_log'] = log
-        r.save()
+        try:
+            r = ScanReport.objects.get(id=report_id)
+            r.status = "Failed"
+            if not r.result_json: r.result_json = {}
+            log = r.result_json.get('scan_log', [])
+            log.append(f"CRITICAL ERROR: {str(e)}")
+            r.result_json['scan_log'] = log
+            r.save()
+        except: pass
 
 # ==============================================================================
 # VIEW 1: Dashboard
@@ -73,7 +97,6 @@ def dashboard(request):
             vulns = report.result_json.get('vulnerabilities', [])
             total_vulnerabilities += len(vulns)
             total_endpoints = max(total_endpoints, len(report.result_json.get('endpoints', [])))
-
             for vuln in vulns:
                 sev = str(vuln.get('severity', 'Low')).title()
                 severity_counts[sev] += 1
@@ -92,6 +115,8 @@ def dashboard(request):
     score = (severity_counts['High'] * 10) + (severity_counts['Medium'] * 5) + (severity_counts['Low'] * 2)
     risk_score = min(10.0, score / 50.0) if total_vulnerabilities > 0 else 0
 
+    active_scan = ScanReport.objects.filter(status="Running").first()
+
     context = {
         'reports': all_reports[:5],
         'total_vulnerabilities': total_vulnerabilities,
@@ -100,33 +125,32 @@ def dashboard(request):
         'overall_risk': "HIGH" if severity_counts['High'] > 0 else "LOW",
         'critical_findings': critical_findings[:5],
         'chart_data': {'labels': list(severity_counts.keys()), 'data': list(severity_counts.values())},
-        'trend_data': {'labels': days_labels, 'data': vulnerability_trend}
+        'trend_data': {'labels': days_labels, 'data': vulnerability_trend},
+        'active_scan': active_scan,
     }
     return render(request, 'scanner/dashboard.html', context)
 
 # ==============================================================================
-# VIEW 2: New Scan (Starts Background Thread)
+# VIEW 2: New Scan
 # ==============================================================================
-# In scanner/views.py
-
 def scan_view(request):
-    # 1. Fetch recent reports for the list at the bottom
     recent_reports = ScanReport.objects.all().order_by('-scan_date')[:5]
-
     form = APIScanForm()
+    
     if request.method == 'POST':
         form = APIScanForm(request.POST, request.FILES)
         if form.is_valid():
-            # ... (Your existing form extraction logic for url, file, auth) ...
             target_url_from_form = form.cleaned_data.get('target_url')
             api_file = form.cleaned_data.get('api_file')
             auth_header_string = form.cleaned_data.get('auth_header')
-            
+
             scan_options = {
                 'bola': form.cleaned_data.get('scan_bola'),
                 'auth': form.cleaned_data.get('scan_broken_auth'),
                 'injection': form.cleaned_data.get('scan_injection'),
                 'ratelimit': form.cleaned_data.get('scan_ratelimit'),
+                'jwt': form.cleaned_data.get('scan_jwt'),
+                'debug': form.cleaned_data.get('scan_debug'),
             }
 
             auth_headers = {}
@@ -147,7 +171,6 @@ def scan_view(request):
                 if spec_content: base_url_for_scan = f"{urlparse(target_url_from_form).scheme}://{urlparse(target_url_from_form).netloc}"
 
             if spec_content and base_url_for_scan:
-                # Create the report
                 new_report = ScanReport.objects.create(
                     target_url=scan_target_display,
                     scan_date=timezone.now(),
@@ -155,23 +178,20 @@ def scan_view(request):
                     result_json={"scan_log": ["Initializing scanner..."]}
                 )
                 
-                # Start background task
                 thread = threading.Thread(
                     target=run_scan_in_background,
                     args=(new_report.id, spec_content, base_url_for_scan, auth_headers, scan_options)
                 )
                 thread.start()
 
-                # Redirect to the PROGRESS page
                 return redirect('scan_progress', report_id=new_report.id)
             else:
                 messages.error(request, "Scan failed: Spec content or Base URL missing.")
 
-    # Pass 'recent_reports' to the template
     return render(request, 'scanner/scan.html', {'form': form, 'recent_reports': recent_reports})
 
 # ==============================================================================
-# VIEW 3: Progress Page & Status API
+# VIEW 3: Progress & Stop
 # ==============================================================================
 def scan_progress_view(request, report_id):
     report = get_object_or_404(ScanReport, pk=report_id)
@@ -184,8 +204,17 @@ def scan_status_api(request, report_id):
         'log': report.result_json.get('scan_log', [])
     })
 
+# --- NEW: STOP SCAN VIEW ---
+def stop_scan_view(request, report_id):
+    report = get_object_or_404(ScanReport, pk=report_id)
+    if report.status == "Running":
+        report.status = "Stopped"
+        report.save()
+        messages.warning(request, "Scan stopped by user command.")
+    return redirect('dashboard')
+
 # ==============================================================================
-# VIEW 4: History & Detail Views
+# VIEW 4: History & Details
 # ==============================================================================
 def history_view(request):
     return render(request, 'scanner/history.html', {'all_reports': ScanReport.objects.all().order_by('-scan_date')})
@@ -198,8 +227,21 @@ def delete_report_view(request, report_id):
 
 def report_detail_view(request, report_id):
     report = get_object_or_404(ScanReport, pk=report_id)
-    vulns = report.result_json.get('vulnerabilities', [])
-    severity_counts = Counter(str(v.get('severity', 'Low')).title() for v in vulns)
+    vulnerabilities = report.result_json.get('vulnerabilities', [])
+    endpoints = report.result_json.get('endpoints', [])
+    
+    # --- NEW: Attach remediation advice ---
+    enhanced_vulnerabilities = []
+    for vuln in vulnerabilities:
+        v_copy = vuln.copy() # Make a temporary copy so we don't change the DB
+        remediation = get_remediation(v_copy.get('name', ''))
+        if remediation:
+            v_copy['advice'] = remediation['advice']
+            v_copy['code'] = remediation['code_snippet']
+        enhanced_vulnerabilities.append(v_copy)
+    # --------------------------------------
+
+    severity_counts = Counter(str(v.get('severity', 'Low')).title() for v in vulnerabilities)
     
     color_map = {"High": "#f85149", "Medium": "#f0ad4e", "Low": "#58a6ff"}
     labels = ["High", "Medium", "Low"]
@@ -208,7 +250,13 @@ def report_detail_view(request, report_id):
         'data': [severity_counts[l] for l in labels if severity_counts[l] > 0],
         'colors': [color_map[l] for l in labels if severity_counts[l] > 0]
     }
-    return render(request, 'scanner/report_detail.html', {'report': report, 'vulnerabilities': vulns, 'endpoints': report.result_json.get('endpoints', []), 'chart_data': chart_data})
+    
+    return render(request, 'scanner/report_detail.html', {
+        'report': report, 
+        'vulnerabilities': enhanced_vulnerabilities, # Pass the ENHANCED list
+        'endpoints': endpoints, 
+        'chart_data': chart_data
+    })
 
 # ==============================================================================
 # VIEW 5: PDF Download

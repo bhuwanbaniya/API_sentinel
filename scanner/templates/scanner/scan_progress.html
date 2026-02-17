@@ -5,7 +5,14 @@
 {% block content %}
 <div class="header">
     <h1>Scan in Progress</h1>
-    <div class="risk-badge" style="background: #3498db; color: white;">RUNNING</div>
+    <div style="display: flex; gap: 10px;">
+        <div class="risk-badge" style="background: #3498db; color: white;">RUNNING</div>
+        
+        <!-- STOP BUTTON -->
+        <a href="{% url 'stop_scan' report.id %}" class="risk-badge" style="background: #e74c3c; color: white; text-decoration: none; cursor: pointer; border: 1px solid #c0392b;">
+            STOP SCAN
+        </a>
+    </div>
 </div>
 
 <div class="card" style="background: #0d1117; border: 1px solid #30363d;">
@@ -16,7 +23,6 @@
         <span id="scan-status" style="color: #58a6ff; font-weight: bold; margin-left: 10px; font-family: monospace; font-size: 1.2rem;">INITIALIZING...</span>
     </div>
     
-    <!-- LIVE TERMINAL WINDOW -->
     <div id="terminal-window" style="
         background-color: #000000; 
         color: #00ff41; 
@@ -34,7 +40,6 @@
     </div>
 </div>
 
-<!-- Styles for the Loader and Terminal -->
 <style>
     #terminal-window::-webkit-scrollbar { width: 8px; }
     #terminal-window::-webkit-scrollbar-track { background: #000; }
@@ -51,7 +56,6 @@
     @keyframes rotation { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 </style>
 
-<!-- JAVASCRIPT FOR POLLING & REDIRECT -->
 <script>
     const reportId = "{{ report.id }}";
     const logDiv = document.getElementById('log-content');
@@ -62,31 +66,24 @@
         fetch(`/api/scan-status/${reportId}/`)
             .then(response => response.json())
             .then(data => {
-                // 1. Update Status Text
                 statusSpan.textContent = data.status.toUpperCase();
 
-                // 2. Update Log Content
                 if (data.log && data.log.length > 0) {
                     logDiv.innerHTML = data.log.join('<br>') + '<br><span class="cursor">_</span>';
-                    // Auto-scroll to the bottom to see new logs
                     terminal.scrollTop = terminal.scrollHeight;
                 }
 
-                // 3. Check if Finished (Success or Failed)
-                if (data.status === 'Success' || data.status === 'Failed') {
-                    // Wait 1 second, then Redirect to the REPORT DETAIL page
+                if (data.status === 'Success' || data.status === 'Failed' || data.status === 'Stopped') {
                     setTimeout(() => {
                         window.location.href = `/history/${reportId}/`; 
                     }, 1000); 
                 } else {
-                    // If still running, check again in 1 second
                     setTimeout(checkProgress, 1000);
                 }
             })
             .catch(error => console.error('Error:', error));
     }
 
-    // Start polling immediately
     checkProgress();
 </script>
 {% endblock %}

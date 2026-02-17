@@ -8,7 +8,6 @@
 </div>
 
 <div class="card">
-    <!-- Display Messages (Success/Error) -->
     {% if messages %}
     <div class="messages">
         {% for message in messages %}
@@ -19,18 +18,15 @@
     </div>
     {% endif %}
     
-    <!-- The Scan Form -->
     <form method="post" enctype="multipart/form-data">
         {% csrf_token %}
         
-        <!-- Target Inputs -->
+        <!-- Targets -->
         <div style="margin-bottom: 1.5rem;">
             <label style="display:block; margin-bottom:8px; font-weight:bold; color: var(--text-primary);">{{ form.target_url.label }}</label>
             {{ form.target_url }}
         </div>
-        
         <p style="text-align: center; font-weight: bold; margin: 20px 0; color: var(--text-secondary);">OR</p>
-        
         <div style="margin-bottom: 1.5rem;">
             <label style="display:block; margin-bottom:8px; font-weight:bold; color: var(--text-primary);">{{ form.api_file.label }}</label>
             {{ form.api_file }}
@@ -38,7 +34,7 @@
         
         <hr style="margin: 25px 0; border-color: var(--border-dark);">
         
-        <!-- Auth Input -->
+        <!-- Auth -->
         <div style="margin-bottom: 1.5rem;">
             <label style="display:block; margin-bottom:8px; font-weight:bold; color: var(--text-primary);">{{ form.auth_header.label }}</label>
             {{ form.auth_header }}
@@ -46,28 +42,28 @@
 
         <hr style="margin: 25px 0; border-color: var(--border-dark);">
 
-        <!-- Advanced Configuration (Checkboxes) -->
+        <!-- Advanced Config -->
         <h3 style="color: var(--text-primary); font-size: 1.1rem; margin-bottom: 15px;">Scan Configuration (Select Modules)</h3>
         
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
             <div style="background: var(--bg-dark); padding: 15px; border-radius: 6px; border: 1px solid var(--border-dark); display: flex; align-items: center;">
-                {{ form.scan_broken_auth }} 
-                <span style="margin-left: 10px; color: var(--text-primary);">{{ form.scan_broken_auth.label }}</span>
+                {{ form.scan_broken_auth }} <span style="margin-left: 10px; color: var(--text-primary);">{{ form.scan_broken_auth.label }}</span>
             </div>
-            
             <div style="background: var(--bg-dark); padding: 15px; border-radius: 6px; border: 1px solid var(--border-dark); display: flex; align-items: center;">
-                {{ form.scan_bola }} 
-                <span style="margin-left: 10px; color: var(--text-primary);">{{ form.scan_bola.label }}</span>
+                {{ form.scan_bola }} <span style="margin-left: 10px; color: var(--text-primary);">{{ form.scan_bola.label }}</span>
             </div>
-            
             <div style="background: var(--bg-dark); padding: 15px; border-radius: 6px; border: 1px solid var(--border-dark); display: flex; align-items: center;">
-                {{ form.scan_injection }} 
-                <span style="margin-left: 10px; color: var(--text-primary);">{{ form.scan_injection.label }}</span>
+                {{ form.scan_injection }} <span style="margin-left: 10px; color: var(--text-primary);">{{ form.scan_injection.label }}</span>
             </div>
-            
             <div style="background: var(--bg-dark); padding: 15px; border-radius: 6px; border: 1px solid var(--border-dark); display: flex; align-items: center;">
-                {{ form.scan_ratelimit }} 
-                <span style="margin-left: 10px; color: var(--text-primary);">{{ form.scan_ratelimit.label }}</span>
+                {{ form.scan_ratelimit }} <span style="margin-left: 10px; color: var(--text-primary);">{{ form.scan_ratelimit.label }}</span>
+            </div>
+            <!-- NEW OPTIONS -->
+            <div style="background: var(--bg-dark); padding: 15px; border-radius: 6px; border: 1px solid var(--border-dark); display: flex; align-items: center;">
+                {{ form.scan_jwt }} <span style="margin-left: 10px; color: var(--text-primary);">{{ form.scan_jwt.label }}</span>
+            </div>
+            <div style="background: var(--bg-dark); padding: 15px; border-radius: 6px; border: 1px solid var(--border-dark); display: flex; align-items: center;">
+                {{ form.scan_debug }} <span style="margin-left: 10px; color: var(--text-primary);">{{ form.scan_debug.label }}</span>
             </div>
         </div>
 
@@ -76,7 +72,6 @@
     </form>
 </div>
 
-<!-- Recent Scans List (Added to Bottom) -->
 <div class="findings-card" style="margin-top: 2rem;">
     <h2>Recent Scans</h2>
     <table class="history-table">

@@ -1,50 +1,59 @@
 {% extends 'scanner/base.html' %}
+{% load static %}
+
+{% block title %}Dashboard - API Sentinel{% endblock %}
 
 {% block content %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
+<!-- --- NEW: ACTIVE SCAN BANNER --- -->
+{% if active_scan %}
+<div class="alert" style="background: #0d1117; border: 1px solid #58a6ff; color: #58a6ff; padding: 15px; border-radius: 6px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+    <div style="display: flex; align-items: center;">
+        <div class="loader" style="width: 20px; height: 20px; border: 3px solid #58a6ff; border-bottom-color: transparent; border-radius: 50%; display: inline-block; animation: rotation 1s linear infinite; margin-right: 15px;"></div>
+        <div>
+            <strong>Scan in Progress:</strong> {{ active_scan.target_url|truncatechars:50 }}
+            <br><span style="font-size: 0.85em; opacity: 0.8;">Started: {{ active_scan.scan_date|date:"H:i" }}</span>
+        </div>
+    </div>
+    <a href="{% url 'scan_progress' active_scan.id %}" style="background: #58a6ff; color: #0d1117; padding: 8px 15px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 0.9em;">View Live Terminal &rarr;</a>
+</div>
+<style>@keyframes rotation { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
+{% endif %}
+<!-- --- END OF NEW BANNER --- -->
+
 <div class="header">
-    <h1>Security Operations Center</h1>
+    <h1>Security Analytics</h1>
     <div class="risk-badge risk-{{ overall_risk|lower }}">Risk: {{ overall_risk }}</div>
 </div>
 
 <!-- Stats -->
 <div class="stats-grid">
-    <div class="stat-card"><h4>Total Vulns</h4><p>{{ total_vulnerabilities }}</p></div>
-    <div class="stat-card"><h4>Max Endpoints</h4><p>{{ total_endpoints }}</p></div>
-    <div class="stat-card"><h4>Security Score</h4><p>{{ risk_score }}/10</p></div>
+    <div class="stat-card"><h4>Total Vulnerabilities</h4><p>{{ total_vulnerabilities }}</p></div>
+    <div class="stat-card"><h4>Endpoints Scanned (Max)</h4><p>{{ total_endpoints }}</p></div>
+    <div class="stat-card stat-card-risk-{{ overall_risk|lower }}"><h4>Risk Score</h4><p>{{ risk_score }}/10</p></div>
 </div>
 
-<!-- TOP CHARTS ROW -->
+<!-- Charts -->
 <div class="dashboard-grid" style="margin-bottom: 2rem;">
-    <!-- Line Chart (Trend) -->
     <div class="chart-card">
         <h2>Vulnerability Trend (Last 7 Days)</h2>
-        <div class="chart-container" style="height: 250px;">
-            <canvas id="trendChart"></canvas>
-        </div>
+        <div class="chart-container" style="height: 250px;"><canvas id="trendChart"></canvas></div>
     </div>
-
-    <!-- Doughnut Chart (Severity) -->
     <div class="chart-card">
         <h2>Severity Distribution</h2>
-        <div class="chart-container" style="height: 250px;">
-            <canvas id="severityChart"></canvas>
-        </div>
+        <div class="chart-container" style="height: 250px;"><canvas id="severityChart"></canvas></div>
     </div>
 </div>
 
-<!-- Findings Table -->
+<!-- Findings & Recent Scans -->
 <div class="findings-card">
     <h2>Critical Security Findings</h2>
     <table class="findings-table">
         <thead><tr><th>Finding</th><th>Severity</th></tr></thead>
         <tbody>
             {% for f in critical_findings %}
-            <tr>
-                <td>{{ f.name }} at <strong>{{ f.target|truncatechars:30 }}</strong></td>
-                <td><span class="badge badge-{{ f.severity }}">{{ f.severity }}</span></td>
-            </tr>
+            <tr><td>{{ f.name }} at <strong>{{ f.target|truncatechars:30 }}</strong></td><td><span class="badge badge-{{ f.severity }}">{{ f.severity }}</span></td></tr>
             {% empty %}
             <tr><td colspan="2">No high-risk findings.</td></tr>
             {% endfor %}
@@ -52,54 +61,41 @@
     </table>
 </div>
 
-<!-- DATA FOR JS -->
+<div class="findings-card" style="margin-top: 2rem;">
+    <h2>Recent Scan Reports</h2>
+    {% for report in reports %}
+        <div class="report-summary">
+            <strong>Target: {{ report.target_url|truncatechars:60 }}</strong>
+            <p style="margin: 0.5rem 0 0 0; font-size: 0.9em; color: var(--text-secondary);">
+                {{ report.scan_date|date:"Y-m-d H:i" }} | 
+                Status: <span style="font-weight: 600; color: {% if report.status == 'Success' %}var(--success-color){% else %}var(--danger-high){% endif %};">{{ report.status }}</span>
+                 | Vulnerabilities: {{ report.result_json.vulnerabilities|length|default:0 }}
+            </p>
+        </div>
+    {% empty %}
+        <p>No scans performed yet.</p>
+    {% endfor %}
+</div>
+
+<!-- Scripts -->
 {{ chart_data|json_script:"severity-data" }}
 {{ trend_data|json_script:"trend-data" }}
 
 <script>
     document.addEventListener('DOMContentLoaded', function() {
-        // --- 1. Severity Doughnut Chart ---
         const sevData = JSON.parse(document.getElementById('severity-data').textContent);
+        const trendData = JSON.parse(document.getElementById('trend-data').textContent);
+
         new Chart(document.getElementById('severityChart'), {
             type: 'doughnut',
-            data: {
-                labels: sevData.labels,
-                datasets: [{
-                    data: sevData.data,
-                    backgroundColor: ['#f85149', '#f0ad4e', '#58a6ff'],
-                    borderWidth: 0
-                }]
-            },
-            options: { responsive: true, maintainAspectRatio: false, cutout: '70%', 
-                plugins: { legend: { position: 'bottom', labels: { color: '#8b949e' } } }
-            }
+            data: { labels: sevData.labels, datasets: [{ data: sevData.data, backgroundColor: ['#f85149', '#f0ad4e', '#58a6ff'], borderWidth: 0 }] },
+            options: { responsive: true, maintainAspectRatio: false, cutout: '70%', plugins: { legend: { position: 'bottom', labels: { color: '#8b949e' } } } }
         });
 
-        // --- 2. Trend Line Chart ---
-        const trendData = JSON.parse(document.getElementById('trend-data').textContent);
         new Chart(document.getElementById('trendChart'), {
             type: 'line',
-            data: {
-                labels: trendData.labels,
-                datasets: [{
-                    label: 'Vulnerabilities',
-                    data: trendData.data,
-                    borderColor: '#58a6ff',
-                    backgroundColor: 'rgba(88, 166, 255, 0.1)',
-                    fill: true,
-                    tension: 0.4,
-                    pointRadius: 5
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    y: { beginAtZero: true, ticks: { color: '#8b949e' }, grid: { color: '#30363d' } },
-                    x: { ticks: { color: '#8b949e' }, grid: { display: false } }
-                },
-                plugins: { legend: { display: false } }
-            }
+            data: { labels: trendData.labels, datasets: [{ label: 'Vulnerabilities', data: trendData.data, borderColor: '#58a6ff', backgroundColor: 'rgba(88, 166, 255, 0.1)', fill: true, tension: 0.4, pointRadius: 5 }] },
+            options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { color: '#8b949e' }, grid: { color: '#30363d' } }, x: { ticks: { color: '#8b949e' }, grid: { display: false } } }, plugins: { legend: { display: false } } }
         });
     });
 </script>

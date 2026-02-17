@@ -2,6 +2,8 @@ import requests
 import yaml
 import re
 import time
+import base64
+import json
 from urllib.parse import urlparse, urljoin
 
 # ==============================================================================
@@ -47,10 +49,6 @@ class APIScanner:
     def parse_endpoints(self):
         if not self.api_spec: return
         paths = self.api_spec.get('paths', {})
-        if not paths:
-            print("[-] No paths found in Swagger file.")
-            return
-            
         for path, methods in paths.items():
             for method in methods:
                 if method.lower() in ['get', 'post', 'put', 'delete', 'patch']:
@@ -77,38 +75,25 @@ def fetch_swagger_from_url(url):
         print(f"Error fetching swagger: {e}")
         return None
 
-def check_broken_authentication(method, path, base_url, logger):
+def check_broken_authentication(method, path, base_url, logger=None):
     if 'login' in path or 'register' in path: return None
     try:
         clean_base = base_url.split('/v2/')[0] + '/v2' if '/v2/' in base_url else base_url.rstrip('/')
-        clean_path = re.sub(r'\{.*?\}', '1', path)
-        url = f"{clean_base}{clean_path}"
-        
+        url = f"{clean_base}{re.sub(r'\{.*?\}', '1', path)}"
         res = requests.request(method, url, timeout=5) 
-        
-        # If it DOES NOT return 401 or 403, it means Auth is broken.
         if res.status_code not in [401, 403]: 
-            # FORCE HIGH SEVERITY FOR EVERYTHING
-            return {
-                "name": "Broken Authentication", 
-                "severity": "High",  # <--- Always High
-                "description": f"Endpoint {method} {path} processed the request without authentication (Status: {res.status_code}). Access was not blocked."
-            }
-    except Exception as e:
-        logger(f"Err in Auth Check: {e}")
+            return {"name": "Broken Authentication", "severity": "High", "description": f"Endpoint {method} {path} processed request without auth (Status: {res.status_code})."}
+    except: pass
     return None
 
 def check_bola_vulnerability(method, path, base_url, auth_headers):
     if '{' not in path: return None
     try:
         clean_base = base_url.split('/v2/')[0] + '/v2' if '/v2/' in base_url else base_url.rstrip('/')
-        
         url1 = f"{clean_base}{re.sub(r'\{.*?\}', '1', path)}"
         url2 = f"{clean_base}{re.sub(r'\{.*?\}', '2', path)}"
-        
         res1 = requests.request(method, url1, headers=auth_headers, timeout=5)
         res2 = requests.request(method, url2, headers=auth_headers, timeout=5)
-        
         if res1.status_code == 200 and res2.status_code == 200 and abs(len(res1.content) - len(res2.content)) < 50:
             return {"name": "BOLA / IDOR", "severity": "High", "description": f"Endpoint {path} allows accessing multiple object IDs."}
     except: pass
@@ -119,7 +104,6 @@ def check_injection(method, path, base_url, auth_headers):
     try:
         clean_base = base_url.split('/v2/')[0] + '/v2' if '/v2/' in base_url else base_url.rstrip('/')
         url = f"{clean_base}{path}?id=' OR 1=1--"
-        
         res = requests.request(method, url, headers=auth_headers, timeout=5)
         if res.status_code == 500 or "sql" in res.text.lower():
             return {"name": "SQL Injection", "severity": "High", "description": f"Endpoint {path} returned database error."}
@@ -130,71 +114,85 @@ def check_rate_limit(method, path, base_url, auth_headers):
     try:
         clean_base = base_url.split('/v2/')[0] + '/v2' if '/v2/' in base_url else base_url.rstrip('/')
         url = f"{clean_base}{re.sub(r'\{.*?\}', '1', path)}"
-        
-        # Send 5 fast requests
         for _ in range(5):
             res = requests.request(method, url, headers=auth_headers, timeout=1)
             if res.status_code == 429: return None
         return {"name": "Missing Rate Limiting", "severity": "Medium", "description": "Endpoint allowed rapid burst requests."}
     except: pass
     return None
+
 def check_sensitive_data(method, path, base_url, auth_headers):
-    """
-    Active Check: Sends a request and scans the RESPONSE BODY for PII (Personally Identifiable Information).
-    """
-    # We only check GET requests for data leaks usually
     if method != 'get': return None
-
-    # Regex Patterns for secrets
-    patterns = {
-        "Email Address": r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+',
-        "Social Security Number (SSN)": r'\b\d{3}-\d{2}-\d{4}\b',
-        "AWS Access Key": r'AKIA[0-9A-Z]{16}',
-        "Private Key": r'-----BEGIN PRIVATE KEY-----',
-        "Credit Card (Basic)": r'\b(?:\d[ -]*?){13,16}\b'
-    }
-
+    patterns = {"Email": r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+', "SSN": r'\b\d{3}-\d{2}-\d{4}\b'}
     try:
-        # Construct URL (replace {id} with 1)
         clean_base = base_url.split('/v2/')[0] + '/v2' if '/v2/' in base_url else base_url.rstrip('/')
-        clean_path = re.sub(r'\{.*?\}', '1', path)
-        url = f"{clean_base}{clean_path}"
-
-        response = requests.get(url, headers=auth_headers, timeout=5)
-        
-        if response.status_code == 200:
-            content = response.text
-            leaked_types = []
-            
-            # Check content against all patterns
-            for name, pattern in patterns.items():
-                if re.search(pattern, content):
-                    leaked_types.append(name)
-            
-            if leaked_types:
-                return {
-                    "name": "Excessive Data Exposure (PII)", 
-                    "severity": "High", 
-                    "description": f"Endpoint {method.upper()} {path} is leaking sensitive information in the response body. Detected: {', '.join(leaked_types)}."
-                }
-
-    except Exception: pass
+        url = f"{clean_base}{re.sub(r'\{.*?\}', '1', path)}"
+        res = requests.get(url, headers=auth_headers, timeout=5)
+        found = [k for k, v in patterns.items() if re.search(v, res.text)]
+        if found: return {"name": "Excessive Data Exposure", "severity": "High", "description": f"Endpoint leaked: {', '.join(found)}"}
+    except: pass
     return None
+
+def check_mass_assignment(method, path, base_url, auth_headers):
+    if method not in ['post', 'put']: return None
+    payload = {"isAdmin": True, "role": "admin"}
+    try:
+        clean_base = base_url.split('/v2/')[0] + '/v2' if '/v2/' in base_url else base_url.rstrip('/')
+        url = f"{clean_base}{path}"
+        res = requests.request(method, url, json=payload, headers=auth_headers, timeout=5)
+        if res.status_code in [200, 201] and ("admin" in res.text.lower() or "true" in res.text.lower()):
+            return {"name": "Potential Mass Assignment", "severity": "Medium", "description": f"Endpoint {method} {path} accepted a payload with 'isAdmin'."}
+    except: pass
+    return None
+
+def check_unsafe_methods(path, base_url):
+    try:
+        clean_base = base_url.split('/v2/')[0] + '/v2' if '/v2/' in base_url else base_url.rstrip('/')
+        url = f"{clean_base}{path}"
+        res = requests.request("TRACE", url, timeout=5)
+        if res.status_code == 200:
+            return {"name": "Unsafe HTTP Method (TRACE)", "severity": "Low", "description": "Server enabled TRACE method."}
+    except: pass
+    return None
+
+def check_jwt_weakness(auth_header):
+    if not auth_header or "Bearer " not in auth_header: return None
+    try:
+        token = auth_header.split(" ")[1]
+        if "." not in token: return None
+        header_segment = token.split(".")[0]
+        padded = header_segment + '=' * (-len(header_segment) % 4)
+        header_data = json.loads(base64.urlsafe_b64decode(padded))
+        
+        if header_data.get('alg', '').lower() == 'none':
+            return {"name": "Insecure JWT (None Alg)", "severity": "Critical", "description": "JWT allows 'None' algorithm."}
+        if header_data.get('alg', '').upper() == 'HS256':
+            return {"name": "Weak JWT Key (HS256)", "severity": "Low", "description": "JWT uses symmetric HS256 key."}
+    except: pass
+    return None
+
+def check_debug_endpoints(base_url):
+    paths = ['/admin', '/api/admin', '/metrics', '/health', '/.env', '/config']
+    clean_base = base_url.rstrip('/')
+    for p in paths:
+        try:
+            url = f"{clean_base}{p}"
+            res = requests.get(url, timeout=3)
+            if res.status_code == 200:
+                return {"name": "Exposed Sensitive Path", "severity": "Medium", "description": f"Path {p} is accessible."}
+        except: pass
+    return None
+
 # ==============================================================================
-# MASTER SCAN FUNCTION
+# MASTER SCAN FUNCTION (UPDATED)
 # ==============================================================================
-def start_scan(spec_content, base_url, auth_headers, scan_options=None, logger=None):
-    """
-    Orchestrates the scan based on selected options.
-    scan_options is a dictionary, e.g., {'bola': True, 'injection': False}
-    """
+def start_scan(spec_content, base_url, auth_headers, scan_options=None, logger=None, report_id=None):
     def log(msg):
         print(msg)
         if logger: logger(msg)
 
-    # Default to True if no options provided
     if scan_options is None:
-        scan_options = {'bola': True, 'auth': True, 'injection': True, 'ratelimit': True}
+        scan_options = {'bola': True, 'auth': True, 'injection': True, 'ratelimit': True, 'jwt': True, 'debug': True}
 
     log(f"[*] Initializing scan for: {base_url}")
     
@@ -202,53 +200,100 @@ def start_scan(spec_content, base_url, auth_headers, scan_options=None, logger=N
     report = passive_scanner.run_passive_scan()
     
     if report['status'] == 'Failed':
-        log("[-] Parsing failed. Aborting.")
-        return report
-
-    endpoints = report.get("endpoints", [])
-    log(f"[+] Successfully parsed {len(endpoints)} endpoints.")
+        # Don't return! Just log and continue with empty endpoints
+        log("[!] Warning: Could not parse OpenAPI spec. Proceeding with Host-Level checks.")
+        endpoints = []
+    else:
+        endpoints = report.get("endpoints", [])
+        log(f"[+] Successfully parsed {len(endpoints)} endpoints.")
     
     log("\n[*] Starting Active Scan Phase...")
+
+    # --- Run Global Checks ---
+    if scan_options.get('debug'):
+        if report_id:
+            from .models import ScanReport 
+            if ScanReport.objects.get(id=report_id).status == "Stopped":
+                log("[!] Scan stopped by user command.")
+                report['status'] = "Stopped"
+                return report
+
+        vuln = check_debug_endpoints(base_url)
+        if vuln and vuln not in report["vulnerabilities"]:
+            report["vulnerabilities"].append(vuln)
+            log(f"     [!] Found: Exposed Hidden Path")
+
+    if scan_options.get('jwt') and auth_headers.get('Authorization'):
+        vuln = check_jwt_weakness(auth_headers.get('Authorization'))
+        if vuln and vuln not in report["vulnerabilities"]:
+            report["vulnerabilities"].append(vuln)
+            log(f"     [!] Found: Weak JWT Config")
     
-    for endpoint_string in endpoints:
-        try:
-            if not endpoint_string or " " not in endpoint_string: continue
-            method, path = endpoint_string.split(" ", 1)
-            method = method.lower()
-            
-            log(f"  -> Scanning {method.upper()} {path} ...")
+    # --- Run Endpoint Checks (Loop) ---
+    if len(endpoints) > 0:
+        for endpoint_string in endpoints:
+            # --- CHECK STOP SIGNAL ---
+            if report_id:
+                from .models import ScanReport
+                if ScanReport.objects.get(id=report_id).status == "Stopped":
+                    log("[!] Scan stopped by user command.")
+                    report['status'] = "Stopped"
+                    return report
+            # -------------------------
 
-            # --- 1. Broken Auth ---
-            if scan_options.get('auth'): # Check if user wanted this
-                vuln = check_broken_authentication(method, path, base_url, log)
-                if vuln and vuln not in report["vulnerabilities"]:
-                    report["vulnerabilities"].append(vuln)
-                    log(f"     [!] Found: Broken Authentication")
+            try:
+                if not endpoint_string or " " not in endpoint_string: continue
+                method, path = endpoint_string.split(" ", 1)
+                method = method.lower()
+                
+                log(f"  -> Scanning {method.upper()} {path} ...")
 
-            # --- 2. BOLA ---
-            if scan_options.get('bola'): # Check if user wanted this
-                if method == 'get' and auth_headers:
+                if scan_options.get('auth'):
+                    vuln = check_broken_authentication(method, path, base_url, logger)
+                    if vuln and vuln not in report["vulnerabilities"]:
+                        report["vulnerabilities"].append(vuln)
+                        log(f"     [!] Found: Broken Authentication")
+
+                if scan_options.get('bola') and method == 'get' and auth_headers:
                     vuln = check_bola_vulnerability(method, path, base_url, auth_headers)
                     if vuln and vuln not in report["vulnerabilities"]:
                         report["vulnerabilities"].append(vuln)
                         log(f"     [!] Found: BOLA")
 
-            # --- 3. Injection ---
-            if scan_options.get('injection'): # Check if user wanted this
-                vuln = check_injection(method, path, base_url, auth_headers)
+                if scan_options.get('injection'):
+                    vuln = check_injection(method, path, base_url, auth_headers)
+                    if vuln and vuln not in report["vulnerabilities"]:
+                        report["vulnerabilities"].append(vuln)
+                        log(f"     [!] Found: SQL Injection")
+
+                if scan_options.get('ratelimit'):
+                    vuln = check_rate_limit(method, path, base_url, auth_headers)
+                    if vuln and vuln not in report["vulnerabilities"]:
+                        report["vulnerabilities"].append(vuln)
+                        log(f"     [!] Found: Rate Limit Issue")
+
+                vuln = check_sensitive_data(method, path, base_url, auth_headers)
                 if vuln and vuln not in report["vulnerabilities"]:
                     report["vulnerabilities"].append(vuln)
-                    log(f"     [!] Found: SQL Injection")
+                    log(f"     [!] Found: Data Leak")
 
-            # --- 4. Rate Limit ---
-            if scan_options.get('ratelimit'): # Check if user wanted this
-                vuln = check_rate_limit(method, path, base_url, auth_headers)
+                vuln = check_mass_assignment(method, path, base_url, auth_headers)
                 if vuln and vuln not in report["vulnerabilities"]:
                     report["vulnerabilities"].append(vuln)
-                    log(f"     [!] Found: Rate Limit Issue")
+                    log(f"     [!] Found: Mass Assignment")
 
-        except Exception as e:
-            log(f"     [!] Error scanning {path}: {e}")
+                vuln = check_unsafe_methods(path, base_url)
+                if vuln and vuln not in report["vulnerabilities"]:
+                    report["vulnerabilities"].append(vuln)
+                    log(f"     [!] Found: Unsafe HTTP Method")
+
+            except Exception as e:
+                log(f"     [!] Error scanning {path}: {e}")
+    else:
+        log("[*] No endpoints to scan. Skipping endpoint-specific tests.")
+
+    if len(report["vulnerabilities"]) > 0:
+        report["status"] = "Success"
 
     log("[+] Scan Completed Successfully.")
     return report
