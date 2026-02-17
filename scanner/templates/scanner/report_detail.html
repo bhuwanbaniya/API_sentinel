@@ -8,7 +8,12 @@
 
 <div class="header">
     <h1>Scan Analysis</h1>
-    <a href="{% url 'scan_history' %}" style="color: var(--primary-accent); text-decoration: none;">&larr; Back to History</a>
+    <div>
+        <a href="{% url 'download_pdf' report.id %}" style="background: #28a745; color: white; padding: 10px 20px; border-radius: 4px; text-decoration: none; font-weight: bold; margin-right: 10px;">
+            Download PDF Report
+        </a>
+        <a href="{% url 'scan_history' %}" style="color: var(--primary-accent); text-decoration: none;">&larr; Back to History</a>
+    </div>
 </div>
 
 <div class="card" style="margin-bottom: 2rem; display: flex; justify-content: space-between; align-items: center;">
@@ -20,17 +25,8 @@
         STATUS: {{ report.status|upper }}
     </div>
 </div>
-<div class="header">
-    <h1>Scan Analysis</h1>
-    <div>
-        <a href="{% url 'download_pdf' report.id %}" style="background: #28a745; color: white; padding: 10px 20px; border-radius: 4px; text-decoration: none; font-weight: bold; margin-right: 10px;">
-            Download PDF Report
-        </a>
-        <a href="{% url 'scan_history' %}" style="color: var(--primary-accent); text-decoration: none;">&larr; Back to History</a>
-    </div>
-</div>
+
 <div class="dashboard-grid">
-    <!-- Findings -->
     <div class="findings-card">
         <h2>Vulnerabilities ({{ vulnerabilities|length }})</h2>
         <div style="max-height: 500px; overflow-y: auto; padding-right: 10px;">
@@ -48,28 +44,40 @@
                     
                     <p style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 15px;">{{ vuln.description }}</p>
 
-                    <!-- --- NEW REMEDIATION BOX --- -->
+                    <!-- --- MULTI-LANGUAGE REMEDIATION --- -->
                     {% if vuln.advice %}
-                    <div style="background: #0d1117; border: 1px solid #30363d; border-radius: 6px; overflow: hidden; margin-top: 15px;">
-                        <div style="background: #161b22; padding: 8px 15px; border-bottom: 1px solid #30363d; font-size: 0.85rem; font-weight: bold; color: #58a6ff; display: flex; align-items: center;">
-                            <span style="margin-right: 8px;">💡</span> Remediation Guide
+                    <div style="margin-top: 15px;">
+                        <p style="color: #c9d1d9; margin-bottom: 10px;"><strong>💡 Fix:</strong> {{ vuln.advice }}</p>
+                        
+                        {% if vuln.snippets %}
+                        <div class="tab-container" id="tabs-{{ forloop.counter }}">
+                            <div class="tab-header">
+                                {% for lang, code in vuln.snippets.items %}
+                                <button class="tab-btn {% if forloop.first %}active{% endif %}" 
+                                        onclick="openTab(event, '{{ forloop.parentloop.counter }}-{{ forloop.counter }}')">
+                                    {{ lang }}
+                                </button>
+                                {% endfor %}
+                            </div>
+
+                            {% for lang, code in vuln.snippets.items %}
+                            <div id="{{ forloop.parentloop.counter }}-{{ forloop.counter }}-{{ forloop.index }}" 
+                                 class="tab-content {% if forloop.first %}active{% endif %}"
+                                 data-group="tabs-{{ forloop.parentloop.counter }}">
+                                <pre style="color: #28a745; margin: 0; font-family: 'Consolas', monospace; font-size: 0.85rem; overflow-x: auto;">{{ code }}</pre>
+                            </div>
+                            {% endfor %}
                         </div>
-                        <div style="padding: 15px;">
-                            <p style="color: #c9d1d9; font-size: 0.9rem; margin-top: 0; margin-bottom: 10px;">{{ vuln.advice }}</p>
-                            {% if vuln.code %}
-                            <pre style="background: #000; color: #28a745; padding: 15px; border-radius: 4px; overflow-x: auto; font-family: 'Consolas', 'Courier New', monospace; font-size: 0.85rem; margin: 0; border: 1px solid #333;">{{ vuln.code }}</pre>
-                            {% endif %}
-                        </div>
+                        {% endif %}
                     </div>
                     {% endif %}
-                    <!-- ----------------------------- -->
+                    <!-- ---------------------------------- -->
 
                 </div>
             {% endfor %}
         </div>
     </div>
 
-    <!-- Chart -->
     <div class="chart-card">
         <h2>Severity Distribution</h2>
         <div class="chart-container" style="height: 250px; position: relative;">
@@ -78,16 +86,50 @@
     </div>
 </div>
 
-<!-- DATA FOR JS -->
+<!-- STYLES FOR TABS -->
+<style>
+.tab-container { margin-top: 10px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; overflow: hidden; }
+.tab-header { display: flex; background: #161b22; border-bottom: 1px solid #30363d; overflow-x: auto; }
+.tab-btn { background: none; border: none; color: #8b949e; padding: 10px 15px; cursor: pointer; font-family: inherit; font-size: 0.85rem; font-weight: bold; }
+.tab-btn:hover { color: #c9d1d9; }
+.tab-btn.active { color: #58a6ff; border-bottom: 2px solid #58a6ff; background: rgba(56, 139, 253, 0.1); }
+.tab-content { display: none; padding: 15px; background: #000; }
+.tab-content.active { display: block; }
+</style>
+
+<!-- JAVASCRIPT FOR TABS & CHART -->
 {{ chart_data|json_script:"chart-data-json" }}
 
 <script>
+    // Tab Switching Logic
+    function openTab(evt, tabId) {
+        // Find the container
+        var container = evt.currentTarget.closest('.tab-container');
+        
+        // Hide all content divs in this container
+        var contents = container.querySelectorAll('.tab-content');
+        contents.forEach(div => div.classList.remove('active'));
+
+        // Deactivate all buttons in this container
+        var buttons = container.querySelectorAll('.tab-btn');
+        buttons.forEach(btn => btn.classList.remove('active'));
+
+        // Activate clicked button and find matching content
+        evt.currentTarget.classList.add('active');
+        
+        // Find the content div by index (hacky but works for simple loop)
+        // Better: Use direct traversal
+        // Since we are generating unique IDs, we need to match them carefully.
+        // Let's use simpler index-based matching for robustness in Django loops.
+        var index = Array.from(buttons).indexOf(evt.currentTarget);
+        contents[index].classList.add('active');
+    }
+
+    // Chart Logic
     document.addEventListener('DOMContentLoaded', function() {
         const dataBox = document.getElementById('chart-data-json');
         if (dataBox) {
             const chartData = JSON.parse(dataBox.textContent);
-            console.log("Chart Data Received:", chartData); // Check your browser console!
-
             if (chartData.data && chartData.data.length > 0) {
                 const ctx = document.getElementById('detailChart').getContext('2d');
                 new Chart(ctx, {
@@ -97,7 +139,6 @@
                         datasets: [{
                             data: chartData.data,
                             backgroundColor: chartData.colors,
-                            hoverOffset: 10,
                             borderWidth: 0
                         }]
                     },
@@ -105,16 +146,9 @@
                         responsive: true,
                         maintainAspectRatio: false,
                         cutout: '70%',
-                        plugins: {
-                            legend: { 
-                                position: 'bottom', 
-                                labels: { color: '#c9d1d9', font: { size: 12 } } 
-                            }
-                        }
+                        plugins: { legend: { position: 'bottom', labels: { color: '#c9d1d9' } } }
                     }
                 });
-            } else {
-                document.querySelector('.chart-container').innerHTML = "<p style='text-align:center; color:#8b949e; margin-top:100px;'>No severity data available.</p>";
             }
         }
     });

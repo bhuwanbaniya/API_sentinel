@@ -1,6 +1,5 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
-from .remediation import get_remediation
 from django.utils import timezone
 from datetime import timedelta
 from django.http import HttpResponse, JsonResponse
@@ -9,6 +8,7 @@ from django.conf import settings
 from .forms import APIScanForm
 from .models import ScanReport
 from .scan_engine import start_scan, fetch_swagger_from_url
+from .remediation import get_remediation # Import the helper
 from collections import Counter
 from urllib.parse import urlparse
 from fpdf import FPDF
@@ -32,14 +32,10 @@ def run_scan_in_background(report_id, spec_content, base_url, auth_headers, scan
                 r.save()
             except Exception: pass
 
-        # --- UPDATE: PASS REPORT_ID HERE ---
         results = start_scan(spec_content, base_url, auth_headers, scan_options, logger=db_logger, report_id=report_id)
         
         report = ScanReport.objects.get(id=report_id)
-        
-        # --- UPDATE: CHECK STOPPED STATUS ---
-        if report.status == "Stopped":
-            return # Don't overwrite stopped status
+        if report.status == "Stopped": return
 
         scan_log = report.result_json.get('scan_log', [])
         results['scan_log'] = scan_log 
@@ -54,15 +50,7 @@ def run_scan_in_background(report_id, spec_content, base_url, auth_headers, scan
 
         if high_risk_count > 0:
             subject = f"ALERT: High Severity Vulnerabilities Detected in {report.target_url}"
-            message = f"""
-            API Sentinel Alert System
-            -------------------------
-            Scan Target: {report.target_url}
-            Scan Date: {report.scan_date}
-            CRITICAL ALERT:
-            The scanner detected {high_risk_count} High Severity vulnerabilities.
-            Please check the dashboard immediately for details.
-            """
+            message = f"API Sentinel Alert: {high_risk_count} High Severity vulnerabilities found."
             print(">>> SENDING ALERT EMAIL (Check Console)...") 
             try:
                 send_mail(subject, message, settings.EMAIL_HOST_USER, ['admin@example.com'], fail_silently=False)
@@ -86,9 +74,7 @@ def run_scan_in_background(report_id, spec_content, base_url, auth_headers, scan
 # ==============================================================================
 def dashboard(request):
     all_reports = ScanReport.objects.all().order_by('-scan_date')
-    
-    total_vulnerabilities = 0
-    total_endpoints = 0
+    total_vulnerabilities, total_endpoints = 0, 0
     severity_counts = Counter()
     critical_findings = []
 
@@ -115,8 +101,6 @@ def dashboard(request):
     score = (severity_counts['High'] * 10) + (severity_counts['Medium'] * 5) + (severity_counts['Low'] * 2)
     risk_score = min(10.0, score / 50.0) if total_vulnerabilities > 0 else 0
 
-    active_scan = ScanReport.objects.filter(status="Running").first()
-
     context = {
         'reports': all_reports[:5],
         'total_vulnerabilities': total_vulnerabilities,
@@ -126,7 +110,7 @@ def dashboard(request):
         'critical_findings': critical_findings[:5],
         'chart_data': {'labels': list(severity_counts.keys()), 'data': list(severity_counts.values())},
         'trend_data': {'labels': days_labels, 'data': vulnerability_trend},
-        'active_scan': active_scan,
+        'active_scan': ScanReport.objects.filter(status="Running").first()
     }
     return render(request, 'scanner/dashboard.html', context)
 
@@ -177,13 +161,11 @@ def scan_view(request):
                     status="Running",
                     result_json={"scan_log": ["Initializing scanner..."]}
                 )
-                
                 thread = threading.Thread(
                     target=run_scan_in_background,
                     args=(new_report.id, spec_content, base_url_for_scan, auth_headers, scan_options)
                 )
                 thread.start()
-
                 return redirect('scan_progress', report_id=new_report.id)
             else:
                 messages.error(request, "Scan failed: Spec content or Base URL missing.")
@@ -191,7 +173,7 @@ def scan_view(request):
     return render(request, 'scanner/scan.html', {'form': form, 'recent_reports': recent_reports})
 
 # ==============================================================================
-# VIEW 3: Progress & Stop
+# VIEW 3: Progress, Stop & API
 # ==============================================================================
 def scan_progress_view(request, report_id):
     report = get_object_or_404(ScanReport, pk=report_id)
@@ -199,22 +181,18 @@ def scan_progress_view(request, report_id):
 
 def scan_status_api(request, report_id):
     report = get_object_or_404(ScanReport, pk=report_id)
-    return JsonResponse({
-        'status': report.status,
-        'log': report.result_json.get('scan_log', [])
-    })
+    return JsonResponse({'status': report.status, 'log': report.result_json.get('scan_log', [])})
 
-# --- NEW: STOP SCAN VIEW ---
 def stop_scan_view(request, report_id):
     report = get_object_or_404(ScanReport, pk=report_id)
     if report.status == "Running":
         report.status = "Stopped"
         report.save()
-        messages.warning(request, "Scan stopped by user command.")
+        messages.warning(request, "Scan stopped by user.")
     return redirect('dashboard')
 
 # ==============================================================================
-# VIEW 4: History & Details
+# VIEW 4: History & Delete
 # ==============================================================================
 def history_view(request):
     return render(request, 'scanner/history.html', {'all_reports': ScanReport.objects.all().order_by('-scan_date')})
@@ -225,24 +203,25 @@ def delete_report_view(request, report_id):
         messages.success(request, "Report deleted.")
     return redirect('scan_history')
 
+# ==============================================================================
+# VIEW 5: Report Detail (WITH REMEDIATION)
+# ==============================================================================
 def report_detail_view(request, report_id):
     report = get_object_or_404(ScanReport, pk=report_id)
     vulnerabilities = report.result_json.get('vulnerabilities', [])
     endpoints = report.result_json.get('endpoints', [])
     
-    # --- NEW: Attach remediation advice ---
+    # Attach Remediation Data
     enhanced_vulnerabilities = []
     for vuln in vulnerabilities:
-        v_copy = vuln.copy() # Make a temporary copy so we don't change the DB
+        v_copy = vuln.copy()
         remediation = get_remediation(v_copy.get('name', ''))
         if remediation:
             v_copy['advice'] = remediation['advice']
-            v_copy['code'] = remediation['code_snippet']
+            v_copy['snippets'] = remediation['snippets'] # <-- KEY UPDATE
         enhanced_vulnerabilities.append(v_copy)
-    # --------------------------------------
 
     severity_counts = Counter(str(v.get('severity', 'Low')).title() for v in vulnerabilities)
-    
     color_map = {"High": "#f85149", "Medium": "#f0ad4e", "Low": "#58a6ff"}
     labels = ["High", "Medium", "Low"]
     chart_data = {
@@ -253,13 +232,13 @@ def report_detail_view(request, report_id):
     
     return render(request, 'scanner/report_detail.html', {
         'report': report, 
-        'vulnerabilities': enhanced_vulnerabilities, # Pass the ENHANCED list
+        'vulnerabilities': enhanced_vulnerabilities, 
         'endpoints': endpoints, 
         'chart_data': chart_data
     })
 
 # ==============================================================================
-# VIEW 5: PDF Download
+# VIEW 6: PDF Download
 # ==============================================================================
 def download_report_pdf(request, report_id):
     report = get_object_or_404(ScanReport, pk=report_id)
@@ -273,36 +252,28 @@ def download_report_pdf(request, report_id):
     pdf.set_text_color(255, 255, 255)
     pdf.set_font("Arial", "B", 24)
     pdf.cell(0, 20, "API SENTINEL REPORT", ln=True, align="C")
+    
     pdf.set_text_color(0, 0, 0)
     pdf.ln(10)
-    
-    pdf.set_font("Arial", "B", 14)
-    pdf.cell(0, 10, "1. Executive Summary", ln=True)
+    pdf.set_font("Arial", "B", 14); pdf.cell(0, 10, "1. Executive Summary", ln=True)
     pdf.set_font("Arial", "", 11)
     pdf.cell(0, 8, f"Target URL: {report.target_url}", ln=True)
     pdf.cell(0, 8, f"Scan Date: {report.scan_date.strftime('%Y-%m-%d %H:%M')}", ln=True)
     pdf.cell(0, 8, f"Total Vulnerabilities: {len(vulns)}", ln=True)
     pdf.ln(10)
 
-    pdf.set_font("Arial", "B", 14)
-    pdf.cell(0, 10, "2. Detected Vulnerabilities", ln=True)
-    
+    pdf.set_font("Arial", "B", 14); pdf.cell(0, 10, "2. Detected Vulnerabilities", ln=True)
     for v in vulns:
         sev = str(v.get('severity', 'Low')).upper()
         if sev in ["HIGH", "CRITICAL"]: pdf.set_text_color(248, 81, 73)
         elif sev == "MEDIUM": pdf.set_text_color(240, 173, 78)
         else: pdf.set_text_color(88, 166, 255)
-        pdf.set_font("Arial", "B", 11)
-        pdf.cell(0, 8, f"[{sev}] {v.get('name')}", ln=True)
-        pdf.set_text_color(50, 50, 50)
-        pdf.set_font("Arial", "", 10)
-        pdf.multi_cell(0, 6, v.get('description'))
-        pdf.ln(4)
+        pdf.set_font("Arial", "B", 11); pdf.cell(0, 8, f"[{sev}] {v.get('name')}", ln=True)
+        pdf.set_text_color(50, 50, 50); pdf.set_font("Arial", "", 10)
+        pdf.multi_cell(0, 6, v.get('description')); pdf.ln(4)
 
-    pdf.add_page()
-    pdf.set_text_color(0, 0, 0)
-    pdf.set_font("Arial", "B", 14)
-    pdf.cell(0, 10, "3. Scanned Endpoints Inventory", ln=True)
+    pdf.add_page(); pdf.set_text_color(0, 0, 0)
+    pdf.set_font("Arial", "B", 14); pdf.cell(0, 10, "3. Scanned Endpoints Inventory", ln=True)
     pdf.set_font("Arial", "", 9)
     for ep in endpoints:
         line = ep if isinstance(ep, str) else f"{ep.get('method')} {ep.get('path')}"
