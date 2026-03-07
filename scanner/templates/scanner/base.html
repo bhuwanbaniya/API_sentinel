@@ -3,32 +3,86 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>{% block title %}API Sentinel{% endblock %}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" type="text/css" href="{% static 'scanner/style.css' %}">
+    <title>{% block title %}API Sentinel{% endblock %}</title>
+    
+    <!-- Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Main CSS -->
+    <link rel="stylesheet" href="{% static 'scanner/style.css' %}">
 </head>
 <body>
+
+    <!-- CONTAINER FOR LAYOUT -->
     <div class="app-container">
-        <nav class="sidebar">
-            <div class="sidebar-header">
-                <h2>API SENTINEL</h2>
+
+        <!-- LEFT SIDEBAR -->
+        <aside class="sidebar">
+            <div class="brand">
+                <i class="fas fa-shield-halved"></i> API Sentinel
             </div>
-            <ul class="sidebar-menu">
-                <li class="{% if request.path == '/' %}active{% endif %}">
-                    <a href="{% url 'dashboard' %}">Dashboard</a>
-                </li>
-                <li class="{% if '/scan/' in request.path %}active{% endif %}">
-                    <a href="{% url 'new_scan' %}">New Scan</a>
-                </li>
-                <li class="{% if '/history/' in request.path %}active{% endif %}">
-                    <a href="{% url 'scan_history' %}">Scan History</a>
-                </li>
-                <li><a href="#">Settings</a></li>
-            </ul>
-        </nav>
+
+            <!-- Navigation Links -->
+            <nav class="nav-menu">
+                <!-- Use 'request.path' to detect active page -->
+                <a href="{% url 'dashboard' %}" class="nav-item {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}">
+                    <i class="fas fa-chart-line"></i> Dashboard
+                </a>
+                
+                <a href="{% url 'new_scan' %}" class="nav-item {% if request.resolver_match.url_name == 'new_scan' %}active{% endif %}">
+                    <i class="fas fa-search"></i> New Scan
+                </a>
+                
+                <a href="{% url 'scan_history' %}" class="nav-item {% if request.resolver_match.url_name == 'scan_history' %}active{% endif %}">
+                    <i class="fas fa-list"></i> Scan History
+                </a>
+
+                <div style="border-top: 1px solid var(--border); margin: 10px 0;"></div>
+
+                <a href="{% url 'enable_2fa' %}" class="nav-item {% if request.resolver_match.url_name == 'enable_2fa' %}active{% endif %}">
+                    <i class="fas fa-mobile-screen"></i> 2FA Settings
+                </a>
+            </nav>
+
+            <!-- User Profile & Logout (Bottom) -->
+            {% if user.is_authenticated %}
+            <div class="user-profile">
+                <div class="user-info">
+                    <i class="fas fa-user-circle fa-lg"></i>
+                    <span>{{ user.username }}</span>
+                </div>
+                <form action="{% url 'logout' %}" method="post">
+                    {% csrf_token %}
+                    <button type="submit" class="btn-logout">
+                        <i class="fas fa-sign-out-alt"></i> Logout
+                    </button>
+                </form>
+            </div>
+            {% else %}
+            <div class="user-profile">
+                <a href="{% url 'login' %}" class="nav-item"><i class="fas fa-sign-in-alt"></i> Login</a>
+                <a href="{% url 'register' %}" class="nav-item"><i class="fas fa-user-plus"></i> Register</a>
+            </div>
+            {% endif %}
+        </aside>
+
+        <!-- MAIN CONTENT AREA -->
         <main class="main-content">
-            {% block content %}{% endblock %}
+            <!-- Messages (Success/Error) -->
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="card" style="padding: 15px; border-left: 5px solid var(--accent); background: rgba(88, 166, 255, 0.1);">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            {% endif %}
+
+            <!-- Page Content -->
+            {% block content %}
+            {% endblock %}
         </main>
+
     </div>
+
 </body>
 </html>

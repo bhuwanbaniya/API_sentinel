@@ -1,0 +1,28 @@
+{% extends 'scanner/base.html' %}
+
+{% block title %}Login - API Sentinel{% endblock %}
+
+{% block content %}
+<div style="max-width: 400px; margin: 50px auto;">
+    <div class="card">
+        <h2 style="text-align: center; margin-bottom: 20px;">Login</h2>
+        <form method="post">
+            {% csrf_token %}
+            <div style="margin-bottom: 15px;">
+                <label>Username</label>
+                {{ form.username }} 
+                <!-- Note: If using standard AuthForm, ensure fields have class or styling. 
+                     The CSS handles input[type="text"] globally. -->
+            </div>
+            <div style="margin-bottom: 15px;">
+                <label>Password</label>
+                {{ form.password }}
+            </div>
+            <button type="submit" class="btn btn-primary" style="width: 100%;">Sign In</button>
+        </form>
+        <p style="text-align: center; margin-top: 15px; color: var(--text-secondary);">
+            Don't have an account? <a href="{% url 'register' %}" style="color: var(--primary-accent);">Register</a>
+        </p>
+    </div>
+</div>
+{% endblock %}
