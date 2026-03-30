@@ -144,14 +144,48 @@ def run_scan_in_background(report_id, spec_content, base_url, auth_headers, scan
 
         # Email Alert
         vulnerabilities = results.get('vulnerabilities', [])
-        high_risk_count = sum(1 for v in vulnerabilities if v.get('severity') == 'High')
-        if high_risk_count > 0 and report.user and report.user.email:
-            subject = f"ALERT: High Severity Vulnerabilities Detected"
-            message = f"API Sentinel detected {high_risk_count} High Severity issues in {report.target_url}."
-            print(">>> SENDING ALERT EMAIL...") 
+        
+        # Fallback to the system's email if the user profile doesn't have an email address
+        recipient_email = report.user.email if report.user and report.user.email else getattr(settings, 'EMAIL_HOST_USER', None)
+        
+        if recipient_email:
+            # Generate HTML email content
+            vuln_list_html = ""
+            for v in vulnerabilities:
+                color = "red" if v.get('severity') in ['High', 'Critical'] else "orange" if v.get('severity') == 'Medium' else "blue"
+                vuln_list_html += f"<li><strong style='color:{color};'>[{v.get('severity')}]</strong> {v.get('name')}: {v.get('description')}</li>"
+            
+            if not vulnerabilities:
+                vuln_list_html = "<li>No vulnerabilities detected!</li>"
+            
+            html_message = f"""
+            <html>
+                <body style="font-family: Arial, sans-serif; color: #333; line-height: 1.6;">
+                    <h2 style="color: #0d1117;">API Sentinel Scan Report</h2>
+                    <p><strong>Target:</strong> {report.target_url}</p>
+                    <p><strong>Status:</strong> {report.status}</p>
+                    <h3>Vulnerability Summary ({len(vulnerabilities)} found):</h3>
+                    <ul>
+                        {vuln_list_html}
+                    </ul>
+                    <hr>
+                    <p style="font-size: 0.9em; color: #666;">Log in to your API Sentinel dashboard to view full details and remediation steps.</p>
+                </body>
+            </html>
+            """
+            
+            subject = f"API Sentinel Report: {report.target_url} - {len(vulnerabilities)} Issues Found"
+            message = f"API Sentinel Scan Report for {report.target_url}\nStatus: {report.status}\nVulnerabilities found: {len(vulnerabilities)}"
+            
+            print(f">>> SENDING HTML ALERT EMAIL TO {report.user.email}...") 
             try:
-                send_mail(subject, message, settings.EMAIL_HOST_USER, [report.user.email], fail_silently=False)
-            except: pass
+                from django.core.mail import EmailMultiAlternatives
+                msg = EmailMultiAlternatives(subject, message, getattr(settings, 'EMAIL_HOST_USER', 'alert@apisentinel.com'), [recipient_email])
+                msg.attach_alternative(html_message, "text/html")
+                msg.send(fail_silently=False)
+                print(">>> EMAIL SENT SUCCESSFULLY.")
+            except Exception as e:
+                print(f">>> FAILED TO SEND EMAIL: {e}")
     except Exception as e:
         print(f"Task Error: {e}")
         try:

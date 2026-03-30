@@ -6,10 +6,8 @@
 <div class="header">
     <h1>Scan in Progress</h1>
     <div style="display: flex; gap: 10px;">
-        <div class="risk-badge" style="background: #3498db; color: white;">RUNNING</div>
-        
-        <!-- STOP BUTTON -->
-        <a href="{% url 'stop_scan' report.id %}" class="risk-badge" style="background: #e74c3c; color: white; text-decoration: none; cursor: pointer; border: 1px solid #c0392b;">
+        <div class="risk-badge" style="background: #3498db; color: white; padding: 5px 15px; border-radius: 20px;">RUNNING</div>
+        <a href="{% url 'stop_scan' report.id %}" class="risk-badge" style="background: #e74c3c; color: white; text-decoration: none; cursor: pointer; padding: 5px 15px; border-radius: 20px; border: 1px solid #c0392b;">
             STOP SCAN
         </a>
     </div>
@@ -19,40 +17,18 @@
     <h3 style="color: #c9d1d9;">Target: {{ report.target_url }}</h3>
     
     <div style="display: flex; align-items: center; margin-bottom: 10px;">
-        <span class="loader"></span>
+        <div class="loader"></div>
         <span id="scan-status" style="color: #58a6ff; font-weight: bold; margin-left: 10px; font-family: monospace; font-size: 1.2rem;">INITIALIZING...</span>
     </div>
     
-    <div id="terminal-window" style="
-        background-color: #000000; 
-        color: #00ff41; 
-        font-family: 'Consolas', 'Courier New', monospace; 
-        padding: 20px; 
-        border-radius: 6px; 
-        height: 450px; 
-        overflow-y: auto; 
-        border: 1px solid #333;
-        box-shadow: 0 0 20px rgba(0, 255, 65, 0.1);
-        font-size: 0.9rem;
-        line-height: 1.5;
-    ">
+    <!-- TERMINAL -->
+    <div id="terminal-window" style="background-color: #000; color: #00ff41; font-family: 'Consolas', monospace; padding: 20px; border-radius: 6px; height: 450px; overflow-y: auto; border: 1px solid #333;">
         <div id="log-content">_</div>
     </div>
 </div>
 
 <style>
-    #terminal-window::-webkit-scrollbar { width: 8px; }
-    #terminal-window::-webkit-scrollbar-track { background: #000; }
-    #terminal-window::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
-    
-    .loader {
-        width: 20px; height: 20px;
-        border: 3px solid #58a6ff;
-        border-bottom-color: transparent;
-        border-radius: 50%;
-        display: inline-block;
-        animation: rotation 1s linear infinite;
-    }
+    .loader { width: 20px; height: 20px; border: 3px solid #58a6ff; border-bottom-color: transparent; border-radius: 50%; display: inline-block; animation: rotation 1s linear infinite; }
     @keyframes rotation { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 </style>
 
@@ -67,22 +43,21 @@
             .then(response => response.json())
             .then(data => {
                 statusSpan.textContent = data.status.toUpperCase();
-
                 if (data.log && data.log.length > 0) {
-                    logDiv.innerHTML = data.log.join('<br>') + '<br><span class="cursor">_</span>';
+                    logDiv.innerHTML = data.log.join('<br>') + '<br>_';
                     terminal.scrollTop = terminal.scrollHeight;
                 }
-
+                // Redirect if finished
                 if (data.status === 'Success' || data.status === 'Failed' || data.status === 'Stopped') {
                     setTimeout(() => {
                         window.location.href = `/history/${reportId}/`; 
-                    }, 1000); 
+                    }, 1500); 
                 } else {
                     setTimeout(checkProgress, 1000);
                 }
             })
             .catch(error => console.error('Error:', error));
     }
-
     checkProgress();
 </script>
+{% endblock %}
