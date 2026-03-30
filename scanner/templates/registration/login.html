@@ -3,26 +3,22 @@
 {% block title %}Login - API Sentinel{% endblock %}
 
 {% block content %}
-<div style="max-width: 400px; margin: 50px auto;">
-    <div class="card">
-        <h2 style="text-align: center; margin-bottom: 20px;">Login</h2>
-        <form method="post">
-            {% csrf_token %}
-            <div style="margin-bottom: 15px;">
-                <label>Username</label>
-                {{ form.username }} 
-                <!-- Note: If using standard AuthForm, ensure fields have class or styling. 
-                     The CSS handles input[type="text"] globally. -->
-            </div>
-            <div style="margin-bottom: 15px;">
-                <label>Password</label>
-                {{ form.password }}
-            </div>
-            <button type="submit" class="btn btn-primary" style="width: 100%;">Sign In</button>
-        </form>
-        <p style="text-align: center; margin-top: 15px; color: var(--text-secondary);">
-            Don't have an account? <a href="{% url 'register' %}" style="color: var(--primary-accent);">Register</a>
-        </p>
-    </div>
+<div class="card" style="width: 100%; max-width: 400px; padding: 40px; margin: auto;">
+    <h2 style="text-align: center; margin-bottom: 25px; justify-content: center; border-bottom: none;">Login</h2>
+    <form method="post">
+        {% csrf_token %}
+        <div style="margin-bottom: 15px;">
+            <label>Username</label>
+            {{ form.username }} 
+        </div>
+        <div style="margin-bottom: 20px;">
+            <label>Password</label>
+            {{ form.password }}
+        </div>
+        <button type="submit" class="btn btn-primary" style="width: 100%;">Sign In</button>
+    </form>
+    <p style="text-align: center; margin-top: 20px; color: var(--text-muted);">
+        Don't have an account? <a href="{% url 'register' %}" style="color: var(--accent); font-weight: 500; text-decoration: none;">Register</a>
+    </p>
 </div>
 {% endblock %}

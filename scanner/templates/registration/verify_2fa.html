@@ -1,20 +1,18 @@
 {% extends 'scanner/base.html' %}
 
-{% block title %}Verify 2FA{% endblock %}
+{% block title %}Verify 2FA - API Sentinel{% endblock %}
 
 {% block content %}
-<div style="max-width: 400px; margin: 50px auto;">
-    <div class="card">
-        <h2 style="text-align: center;">Two-Factor Authentication</h2>
-        <p style="text-align: center; color: var(--text-secondary); margin-bottom: 20px;">
-            Please enter the 6-digit code from your authenticator app.
-        </p>
-        
-        <form method="post">
-            {% csrf_token %}
-            <input type="text" name="otp_token" placeholder="000000" style="text-align: center; font-size: 1.5rem; letter-spacing: 5px;" required>
-            <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 10px;">Verify</button>
-        </form>
-    </div>
+<div class="card" style="width: 100%; max-width: 400px; padding: 40px; margin: auto;">
+    <h2 style="text-align: center; margin-bottom: 25px; border-bottom: none; justify-content: center;">Two-Factor Authentication</h2>
+    <p style="text-align: center; color: var(--text-muted); margin-bottom: 25px; font-size: 13px;">
+        Please enter the 6-digit code from your authenticator app.
+    </p>
+    
+    <form method="post">
+        {% csrf_token %}
+        <input type="text" name="otp_code" placeholder="000000" style="text-align: center; font-size: 1.5rem; letter-spacing: 5px; padding: 15px; margin-bottom: 20px; font-family: 'Consolas', monospace;" required maxlength="6" autofocus>
+        <button type="submit" class="btn btn-primary" style="width: 100%; padding: 12px; font-size: 14px;">Verify Security Code</button>
+    </form>
 </div>
 {% endblock %}

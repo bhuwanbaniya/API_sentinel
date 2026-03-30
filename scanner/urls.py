@@ -12,6 +12,8 @@ urlpatterns = [
 
     # App
     path('', views.dashboard, name='dashboard'),
+    path('settings/', views.profile_settings_view, name='settings'),
+    path('api/test-webhook/', views.test_webhook_api, name='test_webhook_api'),
     path('scan/', views.scan_view, name='new_scan'),
     path('history/', views.history_view, name='scan_history'),
     path('history/<int:report_id>/', views.report_detail_view, name='report_detail'),
@@ -20,4 +22,5 @@ urlpatterns = [
     path('scan/progress/<int:report_id>/', views.scan_progress_view, name='scan_progress'),
     path('api/scan-status/<int:report_id>/', views.scan_status_api, name='scan_status_api'),
     path('scan/stop/<int:report_id>/', views.stop_scan_view, name='stop_scan'),
+    path('history/toggle_schedule/<int:report_id>/', views.toggle_schedule_api, name='toggle_schedule'),
 ]

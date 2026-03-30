@@ -8,15 +8,15 @@
 
 <!-- --- NEW: ACTIVE SCAN BANNER --- -->
 {% if active_scan %}
-<div class="alert" style="background: #0d1117; border: 1px solid #58a6ff; color: #58a6ff; padding: 15px; border-radius: 6px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+<div class="alert" style="background: var(--card-bg); border: 1px solid var(--accent); color: var(--accent); padding: 15px; border-radius: 4px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
     <div style="display: flex; align-items: center;">
-        <div class="loader" style="width: 20px; height: 20px; border: 3px solid #58a6ff; border-bottom-color: transparent; border-radius: 50%; display: inline-block; animation: rotation 1s linear infinite; margin-right: 15px;"></div>
+        <div class="loader" style="width: 20px; height: 20px; border: 3px solid var(--accent); border-bottom-color: transparent; border-radius: 50%; display: inline-block; animation: rotation 1s linear infinite; margin-right: 15px;"></div>
         <div>
-            <strong>Scan in Progress:</strong> {{ active_scan.target_url|truncatechars:50 }}
-            <br><span style="font-size: 0.85em; opacity: 0.8;">Started: {{ active_scan.scan_date|date:"H:i" }}</span>
+            <strong>Scan in Progress:</strong> <span style="color: var(--text-main);">{{ active_scan.target_url|truncatechars:50 }}</span>
+            <br><span style="font-size: 0.85em; color: var(--text-muted);">Started: {{ active_scan.scan_date|date:"H:i" }}</span>
         </div>
     </div>
-    <a href="{% url 'scan_progress' active_scan.id %}" style="background: #58a6ff; color: #0d1117; padding: 8px 15px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 0.9em;">View Live Terminal &rarr;</a>
+    <a href="{% url 'scan_progress' active_scan.id %}" class="btn btn-primary" style="font-size: 13px; padding: 6px 12px; font-weight: 500;">View Live Terminal &rarr;</a>
 </div>
 <style>@keyframes rotation { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
 {% endif %}
@@ -24,18 +24,27 @@
 
 <div class="header">
     <h1>Security Analytics</h1>
-    <div class="risk-badge risk-{{ overall_risk|lower }}">Risk: {{ overall_risk }}</div>
+    <div class="badge severity-{{ overall_risk|lower }}">Risk: {{ overall_risk }}</div>
 </div>
 
 <!-- Stats -->
-<div class="stats-grid">
-    <div class="stat-card"><h4>Total Vulnerabilities</h4><p>{{ total_vulnerabilities }}</p></div>
-    <div class="stat-card"><h4>Endpoints Scanned (Max)</h4><p>{{ total_endpoints }}</p></div>
-    <div class="stat-card stat-card-risk-{{ overall_risk|lower }}"><h4>Risk Score</h4><p>{{ risk_score }}/10</p></div>
+<div class="metrics-container">
+    <div class="metric-box">
+        <span class="metric-value">{{ total_vulnerabilities }}</span>
+        <span class="metric-label">Total Vulnerabilities</span>
+    </div>
+    <div class="metric-box">
+        <span class="metric-value">{{ total_endpoints }}</span>
+        <span class="metric-label">Endpoints Scanned</span>
+    </div>
+    <div class="metric-box">
+        <span class="metric-value" style="color: {% if overall_risk == 'High' or overall_risk == 'Critical' %}#E54F4F{% elif overall_risk == 'Medium' %}#F0943A{% else %}#40A8A8{% endif %};">{{ risk_score }}/10</span>
+        <span class="metric-label">Risk Score</span>
+    </div>
 </div>
 
 <!-- Charts -->
-<div class="dashboard-grid" style="margin-bottom: 2rem;">
+<div class="dashboard-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 25px;">
     <div class="chart-card">
         <h2>Vulnerability Trend (Last 7 Days)</h2>
         <div class="chart-container" style="height: 250px;"><canvas id="trendChart"></canvas></div>
@@ -47,33 +56,33 @@
 </div>
 
 <!-- Findings & Recent Scans -->
-<div class="findings-card">
+<div class="findings-card" style="margin-bottom: 25px;">
     <h2>Critical Security Findings</h2>
     <table class="findings-table">
         <thead><tr><th>Finding</th><th>Severity</th></tr></thead>
         <tbody>
             {% for f in critical_findings %}
-            <tr><td>{{ f.name }} at <strong>{{ f.target|truncatechars:30 }}</strong></td><td><span class="badge badge-{{ f.severity }}">{{ f.severity }}</span></td></tr>
+            <tr><td>{{ f.name }} at <strong>{{ f.target|truncatechars:40 }}</strong></td><td><span class="badge severity-{{ f.severity|lower }}">{{ f.severity }}</span></td></tr>
             {% empty %}
-            <tr><td colspan="2">No high-risk findings.</td></tr>
+            <tr><td colspan="2" style="text-align: center; color: var(--text-muted);">No high-risk findings.</td></tr>
             {% endfor %}
         </tbody>
     </table>
 </div>
 
-<div class="findings-card" style="margin-top: 2rem;">
+<div class="findings-card">
     <h2>Recent Scan Reports</h2>
     {% for report in reports %}
-        <div class="report-summary">
-            <strong>Target: {{ report.target_url|truncatechars:60 }}</strong>
-            <p style="margin: 0.5rem 0 0 0; font-size: 0.9em; color: var(--text-secondary);">
+        <div class="report-summary" style="padding: 15px 0; border-bottom: 1px solid var(--card-border);">
+            <strong style="color: var(--text-main);">Target: {{ report.target_url|truncatechars:60 }}</strong>
+            <p style="margin: 0.5rem 0 0 0; font-size: 13px; color: var(--text-muted);">
                 {{ report.scan_date|date:"Y-m-d H:i" }} | 
-                Status: <span style="font-weight: 600; color: {% if report.status == 'Success' %}var(--success-color){% else %}var(--danger-high){% endif %};">{{ report.status }}</span>
+                Status: <span style="font-weight: 500; color: {% if report.status == 'Success' %}#40A8A8{% else %}#E54F4F{% endif %};">{{ report.status }}</span>
                  | Vulnerabilities: {{ report.result_json.vulnerabilities|length|default:0 }}
             </p>
         </div>
     {% empty %}
-        <p>No scans performed yet.</p>
+        <p style="text-align: center; color: var(--text-muted); padding: 15px;">No scans performed yet.</p>
     {% endfor %}
 </div>
 
@@ -88,14 +97,14 @@
 
         new Chart(document.getElementById('severityChart'), {
             type: 'doughnut',
-            data: { labels: sevData.labels, datasets: [{ data: sevData.data, backgroundColor: ['#f85149', '#f0ad4e', '#58a6ff'], borderWidth: 0 }] },
-            options: { responsive: true, maintainAspectRatio: false, cutout: '70%', plugins: { legend: { position: 'bottom', labels: { color: '#8b949e' } } } }
+            data: { labels: sevData.labels, datasets: [{ data: sevData.data, backgroundColor: ['#E54F4F', '#F0943A', '#40A8A8'], borderWidth: 0 }] },
+            options: { responsive: true, maintainAspectRatio: false, cutout: '75%', plugins: { legend: { position: 'bottom', labels: { color: '#94A3B8', font: { family: "'Roboto', sans-serif" } } } } }
         });
 
         new Chart(document.getElementById('trendChart'), {
             type: 'line',
-            data: { labels: trendData.labels, datasets: [{ label: 'Vulnerabilities', data: trendData.data, borderColor: '#58a6ff', backgroundColor: 'rgba(88, 166, 255, 0.1)', fill: true, tension: 0.4, pointRadius: 5 }] },
-            options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { color: '#8b949e' }, grid: { color: '#30363d' } }, x: { ticks: { color: '#8b949e' }, grid: { display: false } } }, plugins: { legend: { display: false } } }
+            data: { labels: trendData.labels, datasets: [{ label: 'Vulnerabilities', data: trendData.data, borderColor: '#0067CE', backgroundColor: 'rgba(0, 103, 206, 0.1)', fill: true, tension: 0.2, pointRadius: 4 }] },
+            options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { color: '#94A3B8' }, grid: { color: '#31363F' } }, x: { ticks: { color: '#94A3B8' }, grid: { display: false } } }, plugins: { legend: { display: false } } }
         });
     });
 </script>

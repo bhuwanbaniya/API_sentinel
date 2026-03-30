@@ -16,6 +16,7 @@
     <!-- CONTAINER FOR LAYOUT -->
     <div class="app-container">
 
+        {% if request.resolver_match.url_name != 'login' and request.resolver_match.url_name != 'register' and request.resolver_match.url_name != 'verify_2fa' %}
         <!-- LEFT SIDEBAR -->
         <aside class="sidebar">
             <div class="brand">
@@ -24,7 +25,6 @@
 
             <!-- Navigation Links -->
             <nav class="nav-menu">
-                <!-- Use 'request.path' to detect active page -->
                 <a href="{% url 'dashboard' %}" class="nav-item {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}">
                     <i class="fas fa-chart-line"></i> Dashboard
                 </a>
@@ -37,10 +37,14 @@
                     <i class="fas fa-list"></i> Scan History
                 </a>
 
-                <div style="border-top: 1px solid var(--border); margin: 10px 0;"></div>
+                <div style="border-top: 1px solid var(--card-border); margin: 10px 0;"></div>
 
                 <a href="{% url 'enable_2fa' %}" class="nav-item {% if request.resolver_match.url_name == 'enable_2fa' %}active{% endif %}">
                     <i class="fas fa-mobile-screen"></i> 2FA Settings
+                </a>
+
+                <a href="{% url 'settings' %}" class="nav-item {% if request.resolver_match.url_name == 'settings' %}active{% endif %}">
+                    <i class="fas fa-cog"></i> Profile Settings
                 </a>
             </nav>
 
@@ -65,13 +69,14 @@
             </div>
             {% endif %}
         </aside>
+        {% endif %}
 
         <!-- MAIN CONTENT AREA -->
-        <main class="main-content">
+        <main class="main-content {% if request.resolver_match.url_name == 'login' or request.resolver_match.url_name == 'register' or request.resolver_match.url_name == 'verify_2fa' %}no-sidebar{% endif %}">
             <!-- Messages (Success/Error) -->
             {% if messages %}
                 {% for message in messages %}
-                    <div class="card" style="padding: 15px; border-left: 5px solid var(--accent); background: rgba(88, 166, 255, 0.1);">
+                    <div class="card" style="padding: 15px; border-left: 5px solid var(--accent); background: rgba(0, 103, 206, 0.1);">
                         {{ message }}
                     </div>
                 {% endfor %}

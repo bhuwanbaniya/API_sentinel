@@ -3,32 +3,36 @@
 {% block title %}Scanning... - API Sentinel{% endblock %}
 
 {% block content %}
-<div class="header">
-    <h1>Scan in Progress</h1>
+<div class="header" style="display: flex; justify-content: space-between; align-items: center;">
+    <div>
+        <h1>Scan in Progress</h1>
+        <p>Your scan is executing. Do not close this window.</p>
+    </div>
     <div style="display: flex; gap: 10px;">
-        <div class="risk-badge" style="background: #3498db; color: white; padding: 5px 15px; border-radius: 20px;">RUNNING</div>
-        <a href="{% url 'stop_scan' report.id %}" class="risk-badge" style="background: #e74c3c; color: white; text-decoration: none; cursor: pointer; padding: 5px 15px; border-radius: 20px; border: 1px solid #c0392b;">
+        <div class="badge severity-low" style="padding: 8px 15px; font-size: 12px; background: rgba(0, 103, 206, 0.1); color: var(--accent); border-color: var(--accent);">RUNNING</div>
+        <a href="{% url 'stop_scan' report.id %}" class="btn btn-danger" style="text-decoration: none; padding: 6px 15px; font-size: 13px;">
             STOP SCAN
         </a>
     </div>
 </div>
 
-<div class="card" style="background: #0d1117; border: 1px solid #30363d;">
-    <h3 style="color: #c9d1d9;">Target: {{ report.target_url }}</h3>
+<div class="card" style="padding: 30px;">
+    <h3 style="color: var(--text-main); font-weight: 500; font-size: 1.1rem; border-bottom: none; margin-bottom: 25px;">Target: {{ report.target_url }}</h3>
     
-    <div style="display: flex; align-items: center; margin-bottom: 10px;">
+    <div style="display: flex; align-items: center; margin-bottom: 20px;">
         <div class="loader"></div>
-        <span id="scan-status" style="color: #58a6ff; font-weight: bold; margin-left: 10px; font-family: monospace; font-size: 1.2rem;">INITIALIZING...</span>
+        <span id="scan-status" style="color: var(--accent); font-weight: 500; margin-left: 15px; font-family: 'Consolas', monospace; font-size: 14px; letter-spacing: 1px;">INITIALIZING...</span>
     </div>
     
     <!-- TERMINAL -->
-    <div id="terminal-window" style="background-color: #000; color: #00ff41; font-family: 'Consolas', monospace; padding: 20px; border-radius: 6px; height: 450px; overflow-y: auto; border: 1px solid #333;">
+    <div id="terminal-window" style="background-color: #14161A; color: #40A8A8; font-family: 'Consolas', monospace; padding: 20px; border-radius: 4px; height: 450px; overflow-y: auto; border: 1px solid var(--card-border); font-size: 13px; line-height: 1.5;">
         <div id="log-content">_</div>
     </div>
 </div>
 
 <style>
-    .loader { width: 20px; height: 20px; border: 3px solid #58a6ff; border-bottom-color: transparent; border-radius: 50%; display: inline-block; animation: rotation 1s linear infinite; }
+    .header h1 { margin-bottom: 5px; }
+    .loader { width: 22px; height: 22px; border: 3px solid rgba(0, 103, 206, 0.2); border-bottom-color: var(--accent); border-radius: 50%; display: inline-block; animation: rotation 1s linear infinite; }
     @keyframes rotation { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 </style>
 
@@ -44,7 +48,7 @@
             .then(data => {
                 statusSpan.textContent = data.status.toUpperCase();
                 if (data.log && data.log.length > 0) {
-                    logDiv.innerHTML = data.log.join('<br>') + '<br>_';
+                    logDiv.innerHTML = data.log.join('<br>') + '<br><span style="animation: pulse 1s infinite;">_</span>';
                     terminal.scrollTop = terminal.scrollHeight;
                 }
                 // Redirect if finished

@@ -8,7 +8,7 @@ from datetime import timedelta
 from django.http import HttpResponse, JsonResponse
 from django.core.mail import send_mail
 from django.conf import settings
-from .forms import APIScanForm
+from .forms import APIScanForm, UserProfileForm
 from .models import ScanReport, UserProfile
 from .scan_engine import start_scan, fetch_swagger_from_url
 from .remediation import get_remediation
@@ -22,6 +22,8 @@ import base64
 import yaml
 import threading
 import sys
+import requests
+import time
 
 # ==============================================================================
 # 1. AUTHENTICATION & 2FA VIEWS
@@ -114,6 +116,78 @@ def enable_2fa(request):
         'secret': profile.mfa_secret
     })
 
+@login_required
+def profile_settings_view(request):
+    profile = request.user.userprofile
+    if request.method == 'POST':
+        form = UserProfileForm(request.POST, instance=profile)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Settings updated successfully!")
+            return redirect('settings')
+    else:
+        form = UserProfileForm(instance=profile)
+    return render(request, 'scanner/settings.html', {'form': form})
+
+import json
+
+@login_required
+def test_webhook_api(request):
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            webhook_url = data.get('webhook_url')
+            if not webhook_url:
+                return JsonResponse({"status": "error", "message": "No URL provided."})
+            
+            payload = {
+                "text": "API Sentinel: Webhook Test Successful ✅",
+                "content": "🛡️ **API Sentinel Test**\nIf you are seeing this message, your webhook integration is configured correctly! ✅",
+                "embeds": [
+                    {
+                        "title": "🛡️ API Sentinel Test",
+                        "description": "If you are seeing this message, your webhook integration is configured correctly! ✅",
+                        "color": 5763719,
+                        "footer": {"text": "API Sentinel Auto-Scanner"}
+                    }
+                ],
+                "blocks": [
+                    {
+                        "type": "header",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "🛡️ API Sentinel Test"
+                        }
+                    },
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": "If you are seeing this message, your webhook integration is configured correctly! ✅"
+                        }
+                    }
+                ]
+            }
+            
+            for attempt in range(2):
+                try:
+                    resp = requests.post(webhook_url, json=payload, timeout=5)
+                    if resp.status_code in [200, 204]:
+                        return JsonResponse({"status": "success"})
+                    else:
+                        if attempt == 1:
+                            return JsonResponse({"status": "error", "message": f"Server responded with status {resp.status_code}"})
+                        time.sleep(1)
+                except Exception as request_error:
+                    if attempt == 1:
+                        return JsonResponse({"status": "error", "message": str(request_error)})
+                    time.sleep(1)
+                    
+        except Exception as e:
+            return JsonResponse({"status": "error", "message": str(e)})
+            
+    return JsonResponse({"status": "error", "message": "Invalid request method."})
+
 # ==============================================================================
 # 2. DASHBOARD & SCANNING LOGIC
 # ==============================================================================
@@ -141,6 +215,90 @@ def run_scan_in_background(report_id, spec_content, base_url, auth_headers, scan
         report.result_json = results
         report.status = results.get("status", "Failed")
         report.save()
+
+        # Webhook Alert
+        if report.user and hasattr(report.user, 'userprofile') and report.user.userprofile.webhook_url:
+            threshold = report.user.userprofile.webhook_threshold
+            vulnerabilities = results.get('vulnerabilities', [])
+            
+            highest_severity_val = 0
+            for v in vulnerabilities:
+                sev = str(v.get('severity', 'low')).lower()
+                if sev == 'critical': highest_severity_val = max(highest_severity_val, 3)
+                elif sev == 'high': highest_severity_val = max(highest_severity_val, 2)
+                elif sev == 'medium': highest_severity_val = max(highest_severity_val, 1)
+
+            should_send = True
+            if threshold == 'medium' and highest_severity_val < 1:
+                should_send = False
+            elif threshold == 'high' and highest_severity_val < 2:
+                should_send = False
+                
+            if should_send:
+                print(f">>> SENDING WEBHOOK ALERT TO {report.user.userprofile.webhook_url}...")
+                
+                # Colors based on severity
+                color_code = 5814783 # Blue for low
+                if highest_severity_val >= 3:
+                    color_code = 16273737 # Red
+                elif highest_severity_val == 2:
+                    color_code = 16273737 # Red
+                elif highest_severity_val == 1:
+                    color_code = 15773006 # Orange
+                    
+                vuln_text = "\\n".join([f"• **{v.get('severity', 'Low')}** - {v.get('name')}" for v in vulnerabilities[:10]])
+                if len(vulnerabilities) > 10:
+                    vuln_text += f"\\n...and {len(vulnerabilities) - 10} more"
+                if not vuln_text:
+                    vuln_text = "No vulnerabilities detected! ✅"
+
+                webhook_payload = {
+                    "text": f"API Sentinel Scan Completed for {report.target_url}",
+                    "content": f"🛡️ **API Sentinel Scan Report**\n**Target:** {report.target_url}\n**Status:** {report.status}\n**Vulnerabilities Found:** {len(vulnerabilities)}",
+                    "embeds": [
+                        {
+                            "title": "🛡️ API Sentinel Scan Report",
+                            "description": f"**Target:** {report.target_url}\n**Status:** {report.status}\n**Vulnerabilities Found:** {len(vulnerabilities)}",
+                            "color": color_code,
+                            "fields": [
+                                {
+                                    "name": "Top Findings",
+                                    "value": vuln_text
+                                }
+                            ],
+                            "footer": {"text": "API Sentinel Auto-Scanner"}
+                        }
+                    ],
+                    "blocks": [
+                        {
+                            "type": "header",
+                            "text": {"type": "plain_text", "text": "🛡️ API Sentinel Scan Report"}
+                        },
+                        {
+                            "type": "section",
+                            "text": {"type": "mrkdwn", "text": f"*Target:* {report.target_url}\n*Status:* {report.status}\n*Vulnerabilities Found:* {len(vulnerabilities)}"}
+                        },
+                        {"type": "divider"},
+                        {
+                            "type": "section",
+                            "text": {"type": "mrkdwn", "text": f"*Top Findings:*\n{vuln_text}"}
+                        }
+                    ]
+                }
+                
+                max_retries = 2
+                for attempt in range(max_retries):
+                    try:
+                        resp = requests.post(report.user.userprofile.webhook_url, json=webhook_payload, timeout=5)
+                        if resp.status_code in [200, 204]:
+                            print(">>> WEBHOOK SENT SUCCESSFULLY.")
+                            break
+                        else:
+                            print(f">>> WEBHOOK RETURNED NON-SUCCESS CODE: {resp.status_code}")
+                            time.sleep(2)
+                    except Exception as e:
+                        print(f">>> FAILED TO SEND WEBHOOK (Attempt {attempt+1}/{max_retries}): {e}")
+                        time.sleep(2)
 
         # Email Alert
         vulnerabilities = results.get('vulnerabilities', [])
@@ -306,6 +464,22 @@ def stop_scan_view(request, report_id):
         report.status = "Stopped"
         report.save()
     return redirect('dashboard')
+
+@login_required
+def toggle_schedule_api(request, report_id):
+    report = get_object_or_404(ScanReport, pk=report_id, user=request.user)
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            interval = int(data.get('interval', 0))
+        except (ValueError, TypeError, json.JSONDecodeError):
+            return JsonResponse({'status': 'error', 'message': 'Invalid interval parameters'}, status=400)
+            
+        report.schedule_interval = interval
+        report.is_scheduled = interval > 0
+        report.save()
+        return JsonResponse({'status': 'success', 'is_scheduled': report.is_scheduled, 'interval': report.schedule_interval})
+    return JsonResponse({'status': 'error', 'message': 'Invalid Request'}, status=400)
 
 @login_required
 def history_view(request):

@@ -3,35 +3,33 @@
 {% block title %}Setup 2FA - API Sentinel{% endblock %}
 
 {% block content %}
-<div style="max-width: 600px; margin: 40px auto;">
-    <div class="card" style="text-align: center;">
-        <h2 style="color: var(--text-primary);">Enable Two-Factor Authentication</h2>
-        <p style="color: var(--text-secondary); margin-bottom: 20px;">
-            1. Open Google Authenticator on your phone.<br>
-            2. Scan the QR code below.<br>
-            3. Enter the 6-digit code to confirm.
-        </p>
-        
-        <div style="background: white; padding: 10px; display: inline-block; border-radius: 8px;">
-            <img src="data:image/png;base64,{{ qr_code }}" alt="QR Code" width="200">
-        </div>
-        
-        <div style="margin: 20px 0;">
-            <p style="margin-bottom: 5px; font-size: 0.9em;">Manual Entry Key:</p>
-            <code style="background: #333; padding: 5px 10px; border-radius: 4px; color: #f0ad4e; font-size: 1.1em;">{{ secret }}</code>
-        </div>
-
-        <form method="post" style="margin-top: 30px; border-top: 1px solid var(--border-dark); padding-top: 20px;">
-            {% csrf_token %}
-            <label style="display: block; margin-bottom: 10px; font-weight: bold;">Verify Code:</label>
-            <input type="text" name="otp_code" class="form-control" 
-                   style="width: 150px; margin: 0 auto; text-align: center; letter-spacing: 5px; font-size: 1.5rem; padding: 5px; background: var(--bg-dark); border: 1px solid var(--border-dark); color: white;" 
-                   maxlength="6" required placeholder="000000">
-            <br><br>
-            <button type="submit" style="background: var(--success-color); color: white; padding: 10px 30px; border: none; border-radius: 4px; cursor: pointer; font-size: 1rem;">
-                Activate 2FA
-            </button>
-        </form>
+<div class="card" style="width: 100%; max-width: 500px; padding: 40px; margin: auto; text-align: center;">
+    <h2 style="color: var(--text-main); margin-bottom: 15px; justify-content: center; border-bottom: none;">Enable Two-Factor Authentication</h2>
+    <p style="color: var(--text-muted); margin-bottom: 25px; font-size: 13px; text-align: left; background: #14161A; padding: 15px; border-radius: 4px; border: 1px solid var(--card-border);">
+        1. Open an Authenticator app (like Google Authenticator).<br>
+        2. Scan the QR code below.<br>
+        3. Enter the 6-digit code to confirm.
+    </p>
+    
+    <div style="background: white; padding: 15px; display: inline-block; border-radius: 4px; border: 4px solid var(--card-border);">
+        <img src="data:image/png;base64,{{ qr_code }}" alt="QR Code" width="200">
     </div>
+    
+    <div style="margin: 25px 0;">
+        <p style="margin-bottom: 8px; font-size: 13px; color: var(--text-muted);">Manual Entry Key:</p>
+        <code style="background: #14161A; padding: 8px 15px; border-radius: 4px; color: #F0943A; font-size: 15px; font-family: 'Consolas', monospace; letter-spacing: 1px; border: 1px solid var(--card-border);">{{ secret }}</code>
+    </div>
+
+    <form method="post" style="margin-top: 30px; border-top: 1px solid var(--card-border); padding-top: 30px;">
+        {% csrf_token %}
+        <label style="display: block; margin-bottom: 15px; font-weight: 500;">Verify Setup Code:</label>
+        <input type="text" name="otp_code" 
+               style="width: 200px; margin: 0 auto; text-align: center; letter-spacing: 5px; font-size: 1.5rem; padding: 10px; background: #14161A; border: 1px solid var(--card-border); color: var(--text-main); font-family: 'Consolas', monospace;" 
+               maxlength="6" required placeholder="000000" autofocus>
+        <br><br>
+        <button type="submit" class="btn btn-primary" style="padding: 12px 30px; font-size: 14px; width: 200px;">
+            Activate 2FA
+        </button>
+    </form>
 </div>
 {% endblock %}

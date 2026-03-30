@@ -15,6 +15,7 @@
                 <th>Status</th>
                 <th>Date</th>
                 <th>Vulns</th>
+                <th>Auto Scan</th>
                 <th>Action</th>
             </tr>
         </thead>
@@ -27,17 +28,26 @@
                 <td>{{ report.target_url|truncatechars:50 }}</td>
                 <td>
                     {% if report.status == "Success" %}
-                        <span style="color: #28a745; font-weight: bold;">Success</span>
+                        <span class="status-badge status-success">Success</span>
                     {% elif report.status == "Running" %}
-                        <span style="color: #58a6ff; font-weight: bold; animation: pulse 1.5s infinite;">Running...</span>
+                        <span class="status-badge status-running">Running...</span>
                     {% elif report.status == "Stopped" %}
-                        <span style="color: #f0ad4e; font-weight: bold;">Stopped</span>
+                        <span class="status-badge status-stopped">Stopped</span>
                     {% else %}
-                        <span style="color: #dc3545; font-weight: bold;">{{ report.status }}</span>
+                        <span class="status-badge status-failed">{{ report.status }}</span>
                     {% endif %}
                 </td>
                 <td>{{ report.scan_date|date:"M d, H:i" }}</td>
-                <td>{{ report.result_json.vulnerabilities|length|default:0 }}</td>
+                <td><span class="vuln-badge">{{ report.result_json.vulnerabilities|length|default:0 }}</span></td>
+                
+                <td onclick="event.stopPropagation();">
+                    <select class="schedule-dropdown" onchange="toggleSchedule({{ report.id }}, this)" data-current="{{ report.schedule_interval|default:0 }}">
+                        <option value="0" {% if not report.is_scheduled or report.schedule_interval == 0 %}selected{% endif %}>Off</option>
+                        <option value="1" {% if report.is_scheduled and report.schedule_interval == 1 %}selected{% endif %}>Daily</option>
+                        <option value="7" {% if report.is_scheduled and report.schedule_interval == 7 %}selected{% endif %}>Weekly</option>
+                        <option value="30" {% if report.is_scheduled and report.schedule_interval == 30 %}selected{% endif %}>Monthly</option>
+                    </select>
+                </td>
                 
                 <td onclick="event.stopPropagation();">
                     <form method="post" action="{% url 'delete_report' report.id %}" onsubmit="return confirm('Delete this report?');" style="margin:0;">
@@ -47,7 +57,7 @@
                 </td>
             </tr>
             {% empty %}
-            <tr><td colspan="5" style="text-align: center; padding: 1rem;">No scan history found.</td></tr>
+            <tr><td colspan="5" style="text-align: center; padding: 1rem; color: var(--text-muted);">No scan history found.</td></tr>
             {% endfor %}
         </tbody>
     </table>
@@ -55,7 +65,115 @@
 
 <style>
     @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
-    .delete-button { background: transparent; border: none; color: #e74c3c; font-size: 1.2rem; cursor: pointer; }
-    .delete-button:hover { color: #c0392b; }
+    .delete-button { background: transparent; border: none; color: var(--accent-danger); font-size: 1.2rem; cursor: pointer; transition: color 0.2s; }
+    .delete-button:hover { color: #C44343; }
+    
+    /* Elegant Badges */
+    .status-badge {
+        padding: 4px 10px;
+        border-radius: 12px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        display: inline-block;
+    }
+    .status-success { background: rgba(64, 168, 168, 0.1); color: #40A8A8; border: 1px solid rgba(64, 168, 168, 0.2); }
+    .status-running { background: rgba(88, 166, 255, 0.1); color: #58a6ff; border: 1px solid rgba(88, 166, 255, 0.2); animation: pulse 1.5s infinite; }
+    .status-stopped { background: rgba(240, 148, 58, 0.1); color: #F0943A; border: 1px solid rgba(240, 148, 58, 0.2); }
+    .status-failed { background: rgba(248, 81, 73, 0.1); color: #f85149; border: 1px solid rgba(248, 81, 73, 0.2); }
+    
+    .vuln-badge {
+        background: #161b22;
+        border: 1px solid #30363d;
+        color: #c9d1d9;
+        padding: 3px 10px;
+        border-radius: 12px;
+        font-size: 0.8rem;
+        font-weight: bold;
+        display: inline-block;
+    }
+    
+    /* Enhanced Table Styles */
+    .history-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 0.5rem;
+    }
+    .history-table th {
+        background: var(--bg-hover, #21262d);
+        padding: 14px 18px;
+        text-align: left;
+        font-weight: 600;
+        color: var(--text-muted, #8b949e);
+        border-bottom: 2px solid var(--border-color, #30363d);
+        text-transform: uppercase;
+        font-size: 0.85rem;
+        letter-spacing: 0.5px;
+    }
+    .history-table td {
+        padding: 16px 18px;
+        border-bottom: 1px solid var(--border-color, #30363d);
+        color: var(--text-color, #c9d1d9);
+        vertical-align: middle;
+        transition: background 0.15s ease-in-out;
+    }
+    .history-table tbody tr {
+        transition: transform 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+    }
+    .history-table tbody tr:hover td {
+        background: rgba(255, 255, 255, 0.04);
+    }
+    .history-table tbody tr:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    .history-table tr:last-child td {
+        border-bottom: none;
+    }
+    
+    .schedule-dropdown {
+        background: var(--bg-hover);
+        color: var(--text-color);
+        border: 1px solid var(--border-color);
+        padding: 4px 8px;
+        border-radius: 4px;
+        outline: none;
+        font-family: inherit;
+        font-size: 0.9em;
+        cursor: pointer;
+    }
+    .schedule-dropdown:focus {
+        border-color: var(--accent);
+    }
 </style>
+
+<script>
+function toggleSchedule(reportId, selectElem) {
+    const val = selectElem.value;
+    const oldVal = selectElem.getAttribute('data-current') || "0";
+    
+    fetch(`/history/toggle_schedule/${reportId}/`, {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': '{{ csrf_token }}',
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({'interval': parseInt(val)})
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status !== 'success') {
+            console.error('Failed to update schedule:', data.message);
+            selectElem.value = oldVal; // revert
+        } else {
+            selectElem.setAttribute('data-current', val);
+        }
+    })
+    .catch(error => {
+        console.error('Error updating schedule:', error);
+        selectElem.value = oldVal; // revert
+    });
+}
+</script>
 {% endblock %}

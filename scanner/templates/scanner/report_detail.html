@@ -6,48 +6,51 @@
 {% block content %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-<div class="header">
-    <h1>Scan Analysis</h1>
+<div class="header" style="display: flex; justify-content: space-between; align-items: flex-end;">
     <div>
-        <a href="{% url 'download_pdf' report.id %}" style="background: #28a745; color: white; padding: 10px 20px; border-radius: 4px; text-decoration: none; font-weight: bold; margin-right: 10px;">
+        <h1>Scan Analysis</h1>
+        <p>Detailed view of vulnerabilities and remediation advice.</p>
+    </div>
+    <div style="display: flex; gap: 10px; align-items: center;">
+        <a href="{% url 'scan_history' %}" class="btn btn-secondary" style="font-size: 13px; padding: 8px 15px;">&larr; Back to History</a>
+        <a href="{% url 'download_pdf' report.id %}" class="btn" style="background: #40A8A8; font-size: 13px; padding: 8px 15px;">
             Download PDF Report
         </a>
-        <a href="{% url 'scan_history' %}" style="color: var(--primary-accent); text-decoration: none;">&larr; Back to History</a>
     </div>
 </div>
 
-<div class="card" style="margin-bottom: 2rem; display: flex; justify-content: space-between; align-items: center;">
+<div class="card" style="margin-bottom: 25px; display: flex; justify-content: space-between; align-items: center;">
     <div>
-        <h3 style="margin: 0;">Target: {{ report.target_url }}</h3>
-        <p style="margin: 5px 0 0 0; color: var(--text-secondary);">Executed on: {{ report.scan_date }}</p>
+        <h3 style="margin: 0; padding-bottom: 0; border: none; font-size: 1.2rem;">Target: {{ report.target_url }}</h3>
+        <p style="margin: 5px 0 0 0; color: var(--text-muted); font-size: 13px;">Executed on: {{ report.scan_date }}</p>
     </div>
-    <div class="risk-badge risk-high" style="font-size: 1.2rem; padding: 10px 20px;">
+    <div class="badge severity-{% if report.status == 'Success' %}low{% else %}high{% endif %}" style="font-size: 1rem; padding: 8px 15px;">
         STATUS: {{ report.status|upper }}
     </div>
 </div>
 
-<div class="dashboard-grid">
+<div class="dashboard-grid" style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px;">
     <div class="findings-card">
         <h2>Vulnerabilities ({{ vulnerabilities|length }})</h2>
         <div style="max-height: 500px; overflow-y: auto; padding-right: 10px;">
             {% for vuln in vulnerabilities %}
-                <div class="vuln" style="background: rgba(255,255,255,0.03); padding: 1.5rem; border-left: 4px solid 
-                    {% if vuln.severity == 'High' %}#f85149{% elif vuln.severity == 'Medium' %}#f0ad4e{% else %}#58a6ff{% endif %}; 
-                    margin-bottom: 20px; border-radius: 6px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
+                <div class="vuln" style="background: rgba(255,255,255,0.02); padding: 1.5rem; border-left: 4px solid 
+                    {% if vuln.severity == 'High' %}#E54F4F{% elif vuln.severity == 'Medium' %}#F0943A{% else %}#40A8A8{% endif %}; 
+                    margin-bottom: 15px; border-radius: 4px; border-top: 1px solid var(--card-border); border-right: 1px solid var(--card-border); border-bottom: 1px solid var(--card-border);">
                     
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                         <div>
-                            <span class="badge badge-{{ vuln.severity }}">{{ vuln.severity }}</span>
-                            <strong style="margin-left: 10px; font-size: 1.1rem;">{{ vuln.name }}</strong>
+                            <span class="badge severity-{{ vuln.severity|lower }}">{{ vuln.severity }}</span>
+                            <strong style="margin-left: 10px; font-size: 15px;">{{ vuln.name }}</strong>
                         </div>
                     </div>
                     
-                    <p style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 15px;">{{ vuln.description }}</p>
+                    <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 15px; line-height: 1.5;">{{ vuln.description }}</p>
 
                     <!-- --- MULTI-LANGUAGE REMEDIATION --- -->
                     {% if vuln.advice %}
-                    <div style="margin-top: 15px;">
-                        <p style="color: #c9d1d9; margin-bottom: 10px;"><strong>💡 Fix:</strong> {{ vuln.advice }}</p>
+                    <div style="margin-top: 15px; background: #14161A; padding: 15px; border-radius: 4px; border: 1px solid var(--card-border);">
+                        <p style="color: var(--text-main); margin-bottom: 10px; font-size: 13px;"><strong>💡 Fix:</strong> {{ vuln.advice }}</p>
                         
                         {% if vuln.snippets %}
                         <div class="tab-container" id="tabs-{{ forloop.counter }}">
@@ -64,7 +67,7 @@
                             <div id="{{ forloop.parentloop.counter }}-{{ forloop.counter }}-{{ forloop.index }}" 
                                  class="tab-content {% if forloop.first %}active{% endif %}"
                                  data-group="tabs-{{ forloop.parentloop.counter }}">
-                                <pre style="color: #28a745; margin: 0; font-family: 'Consolas', monospace; font-size: 0.85rem; overflow-x: auto;">{{ code }}</pre>
+                                <pre style="color: #40A8A8; margin: 0; font-family: 'Consolas', monospace; font-size: 12px; overflow-x: auto;">{{ code }}</pre>
                             </div>
                             {% endfor %}
                         </div>
@@ -88,12 +91,13 @@
 
 <!-- STYLES FOR TABS -->
 <style>
-.tab-container { margin-top: 10px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; overflow: hidden; }
-.tab-header { display: flex; background: #161b22; border-bottom: 1px solid #30363d; overflow-x: auto; }
-.tab-btn { background: none; border: none; color: #8b949e; padding: 10px 15px; cursor: pointer; font-family: inherit; font-size: 0.85rem; font-weight: bold; }
-.tab-btn:hover { color: #c9d1d9; }
-.tab-btn.active { color: #58a6ff; border-bottom: 2px solid #58a6ff; background: rgba(56, 139, 253, 0.1); }
-.tab-content { display: none; padding: 15px; background: #000; }
+.header h1 { margin-bottom: 0; border: none; padding: 0; }
+.tab-container { margin-top: 15px; background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 4px; overflow: hidden; }
+.tab-header { display: flex; background: var(--dark-bg); border-bottom: 1px solid var(--card-border); overflow-x: auto; }
+.tab-btn { background: none; border: none; color: var(--text-muted); padding: 8px 15px; cursor: pointer; font-family: inherit; font-size: 12px; font-weight: 500; }
+.tab-btn:hover { color: var(--text-main); background: rgba(255,255,255,0.02); }
+.tab-btn.active { color: var(--accent); border-bottom: 2px solid var(--accent); background: rgba(0, 103, 206, 0.05); }
+.tab-content { display: none; padding: 15px; background: #0b0c0e; border-radius: 0 0 4px 4px; }
 .tab-content.active { display: block; }
 </style>
 
@@ -103,24 +107,14 @@
 <script>
     // Tab Switching Logic
     function openTab(evt, tabId) {
-        // Find the container
         var container = evt.currentTarget.closest('.tab-container');
-        
-        // Hide all content divs in this container
         var contents = container.querySelectorAll('.tab-content');
         contents.forEach(div => div.classList.remove('active'));
 
-        // Deactivate all buttons in this container
         var buttons = container.querySelectorAll('.tab-btn');
         buttons.forEach(btn => btn.classList.remove('active'));
 
-        // Activate clicked button and find matching content
         evt.currentTarget.classList.add('active');
-        
-        // Find the content div by index (hacky but works for simple loop)
-        // Better: Use direct traversal
-        // Since we are generating unique IDs, we need to match them carefully.
-        // Let's use simpler index-based matching for robustness in Django loops.
         var index = Array.from(buttons).indexOf(evt.currentTarget);
         contents[index].classList.add('active');
     }
@@ -130,6 +124,14 @@
         const dataBox = document.getElementById('chart-data-json');
         if (dataBox) {
             const chartData = JSON.parse(dataBox.textContent);
+            
+            // Map the colors dynamically based on severity label
+            const bgColors = chartData.labels.map(label => {
+                if(label === 'High' || label === 'Critical') return '#E54F4F';
+                if(label === 'Medium') return '#F0943A';
+                return '#40A8A8'; // Low / Info
+            });
+
             if (chartData.data && chartData.data.length > 0) {
                 const ctx = document.getElementById('detailChart').getContext('2d');
                 new Chart(ctx, {
@@ -138,15 +140,15 @@
                         labels: chartData.labels,
                         datasets: [{
                             data: chartData.data,
-                            backgroundColor: chartData.colors,
+                            backgroundColor: bgColors,
                             borderWidth: 0
                         }]
                     },
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
-                        cutout: '70%',
-                        plugins: { legend: { position: 'bottom', labels: { color: '#c9d1d9' } } }
+                        cutout: '75%',
+                        plugins: { legend: { position: 'bottom', labels: { color: '#94A3B8', font: { family: "'Roboto', sans-serif" } } } }
                     }
                 });
             }

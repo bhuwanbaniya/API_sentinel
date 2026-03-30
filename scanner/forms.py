@@ -1,4 +1,22 @@
 from django import forms
+from .models import UserProfile
+
+class UserProfileForm(forms.ModelForm):
+    webhook_url = forms.URLField(
+        required=False,
+        label='Webhook URL for Notifications (Slack/Discord/Teams)',
+        widget=forms.URLInput(attrs={'class': 'form-input', 'placeholder': 'https://hooks.slack.com/...'})
+    )
+    webhook_threshold = forms.ChoiceField(
+        choices=UserProfile.THRESHOLD_CHOICES,
+        required=False,
+        label="Minimum Vulnerability Alert Threshold",
+        widget=forms.Select(attrs={'class': 'form-input'})
+    )
+
+    class Meta:
+        model = UserProfile
+        fields = ['webhook_url', 'webhook_threshold']
 
 class APIScanForm(forms.Form):
     target_url = forms.URLField(

@@ -5,13 +5,14 @@
 {% block content %}
 <div class="header">
     <h1>Start a New Scan</h1>
+    <p>Configure and launch an API security vulnerability scan.</p>
 </div>
 
 <div class="card">
     {% if messages %}
     <div class="messages">
         {% for message in messages %}
-            <div class="alert alert-{{ message.tags }}" role="alert" style="margin-bottom: 20px; padding: 10px; background: rgba(255,0,0,0.1); border: 1px solid red; color: red; border-radius: 4px;">
+            <div class="alert alert-{{ message.tags }}" role="alert" style="margin-bottom: 20px; padding: 12px; background: rgba(229, 79, 79, 0.1); border: 1px solid var(--accent-danger); color: var(--accent-danger); border-radius: 4px; font-weight: 500;">
                 {{ message }}
             </div>
         {% endfor %}
@@ -22,59 +23,59 @@
         {% csrf_token %}
         
         <!-- Targets -->
-        <div style="margin-bottom: 1.5rem;">
-            <label style="display:block; margin-bottom:8px; font-weight:bold; color: var(--text-primary);">{{ form.target_url.label }}</label>
+        <div style="margin-bottom: 20px;">
+            <label>{{ form.target_url.label }}</label>
             {{ form.target_url }}
         </div>
-        <p style="text-align: center; font-weight: bold; margin: 20px 0; color: var(--text-secondary);">OR</p>
-        <div style="margin-bottom: 1.5rem;">
-            <label style="display:block; margin-bottom:8px; font-weight:bold; color: var(--text-primary);">{{ form.api_file.label }}</label>
+        <p style="text-align: center; font-weight: 500; margin: 20px 0; color: var(--text-muted);">OR</p>
+        <div style="margin-bottom: 20px;">
+            <label>{{ form.api_file.label }}</label>
             {{ form.api_file }}
         </div>
         
-        <hr style="margin: 25px 0; border-color: var(--border-dark);">
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid var(--card-border);">
         
         <!-- Auth -->
-        <div style="margin-bottom: 1.5rem;">
-            <label style="display:block; margin-bottom:8px; font-weight:bold; color: var(--text-primary);">{{ form.auth_header.label }}</label>
+        <div style="margin-bottom: 20px;">
+            <label>{{ form.auth_header.label }}</label>
             {{ form.auth_header }}
         </div>
 
-        <hr style="margin: 25px 0; border-color: var(--border-dark);">
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid var(--card-border);">
 
         <!-- Advanced Config -->
-        <h3 style="color: var(--text-primary); font-size: 1.1rem; margin-bottom: 15px;">Scan Configuration (Select Modules)</h3>
+        <h3 style="color: var(--text-main); font-size: 1.1rem; margin-bottom: 15px; font-weight: 500;">Scan Configuration</h3>
         
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-            <div style="background: var(--bg-dark); padding: 15px; border-radius: 6px; border: 1px solid var(--border-dark); display: flex; align-items: center;">
-                {{ form.scan_broken_auth }} <span style="margin-left: 10px; color: var(--text-primary);">{{ form.scan_broken_auth.label }}</span>
+            <div style="background: #14161A; padding: 15px; border-radius: 4px; border: 1px solid var(--card-border); display: flex; align-items: center;">
+                {{ form.scan_broken_auth }} <span style="margin-left: 10px; color: var(--text-main); font-size: 13px;">{{ form.scan_broken_auth.label }}</span>
             </div>
-            <div style="background: var(--bg-dark); padding: 15px; border-radius: 6px; border: 1px solid var(--border-dark); display: flex; align-items: center;">
-                {{ form.scan_bola }} <span style="margin-left: 10px; color: var(--text-primary);">{{ form.scan_bola.label }}</span>
+            <div style="background: #14161A; padding: 15px; border-radius: 4px; border: 1px solid var(--card-border); display: flex; align-items: center;">
+                {{ form.scan_bola }} <span style="margin-left: 10px; color: var(--text-main); font-size: 13px;">{{ form.scan_bola.label }}</span>
             </div>
-            <div style="background: var(--bg-dark); padding: 15px; border-radius: 6px; border: 1px solid var(--border-dark); display: flex; align-items: center;">
-                {{ form.scan_injection }} <span style="margin-left: 10px; color: var(--text-primary);">{{ form.scan_injection.label }}</span>
+            <div style="background: #14161A; padding: 15px; border-radius: 4px; border: 1px solid var(--card-border); display: flex; align-items: center;">
+                {{ form.scan_injection }} <span style="margin-left: 10px; color: var(--text-main); font-size: 13px;">{{ form.scan_injection.label }}</span>
             </div>
-            <div style="background: var(--bg-dark); padding: 15px; border-radius: 6px; border: 1px solid var(--border-dark); display: flex; align-items: center;">
-                {{ form.scan_ratelimit }} <span style="margin-left: 10px; color: var(--text-primary);">{{ form.scan_ratelimit.label }}</span>
+            <div style="background: #14161A; padding: 15px; border-radius: 4px; border: 1px solid var(--card-border); display: flex; align-items: center;">
+                {{ form.scan_ratelimit }} <span style="margin-left: 10px; color: var(--text-main); font-size: 13px;">{{ form.scan_ratelimit.label }}</span>
             </div>
             <!-- NEW OPTIONS -->
-            <div style="background: var(--bg-dark); padding: 15px; border-radius: 6px; border: 1px solid var(--border-dark); display: flex; align-items: center;">
-                {{ form.scan_jwt }} <span style="margin-left: 10px; color: var(--text-primary);">{{ form.scan_jwt.label }}</span>
+            <div style="background: #14161A; padding: 15px; border-radius: 4px; border: 1px solid var(--card-border); display: flex; align-items: center;">
+                {{ form.scan_jwt }} <span style="margin-left: 10px; color: var(--text-main); font-size: 13px;">{{ form.scan_jwt.label }}</span>
             </div>
-            <div style="background: var(--bg-dark); padding: 15px; border-radius: 6px; border: 1px solid var(--border-dark); display: flex; align-items: center;">
-                {{ form.scan_debug }} <span style="margin-left: 10px; color: var(--text-primary);">{{ form.scan_debug.label }}</span>
+            <div style="background: #14161A; padding: 15px; border-radius: 4px; border: 1px solid var(--card-border); display: flex; align-items: center;">
+                {{ form.scan_debug }} <span style="margin-left: 10px; color: var(--text-main); font-size: 13px;">{{ form.scan_debug.label }}</span>
             </div>
         </div>
 
         <br>
-        <button type="submit" style="width: 100%; padding: 12px; font-size: 1.1rem; margin-top: 10px; background-color: var(--primary-accent); color: white; border: none; border-radius: 4px; cursor: pointer;">Start Comprehensive Scan</button>
+        <button type="submit" class="btn btn-primary" style="width: 100%; padding: 12px; margin-top: 10px;">Start Comprehensive Scan</button>
     </form>
 </div>
 
 <div class="findings-card" style="margin-top: 2rem;">
     <h2>Recent Scans</h2>
-    <table class="history-table">
+    <table>
         <thead>
             <tr>
                 <th>Target</th>
@@ -88,15 +89,15 @@
                 <td>{{ report.target_url|truncatechars:60 }}</td>
                 <td>
                     {% if report.status == "Success" %}
-                        <span style="color: #28a745; font-weight: bold;">Success</span>
+                        <span style="color: #40A8A8; font-weight: 500;">Success</span>
                     {% else %}
-                        <span style="color: #dc3545; font-weight: bold;">{{ report.status }}</span>
+                        <span style="color: var(--accent-danger); font-weight: 500;">{{ report.status }}</span>
                     {% endif %}
                 </td>
                 <td>{{ report.scan_date|date:"M d, H:i" }}</td>
             </tr>
             {% empty %}
-            <tr><td colspan="3" style="text-align: center; padding: 1rem;">No scans performed yet.</td></tr>
+            <tr><td colspan="3" style="text-align: center; padding: 1rem; color: var(--text-muted);">No scans performed yet.</td></tr>
             {% endfor %}
         </tbody>
     </table>
