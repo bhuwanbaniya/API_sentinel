@@ -41,6 +41,12 @@
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                         <div>
                             <span class="badge severity-{{ vuln.severity|lower }}">{{ vuln.severity }}</span>
+                            {% if vuln.cvss %}
+                            <span style="margin-left: 5px; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; background: {% if vuln.cvss >= 9.0 %}#8B0000{% elif vuln.cvss >= 7.0 %}#E54F4F{% elif vuln.cvss >= 4.0 %}#F0943A{% else %}#40A8A8{% endif %}; color: white; display: inline-block;">CVSS {{ vuln.cvss }}</span>
+                            {% endif %}
+                            {% if vuln.owasp %}
+                            <span style="margin-left: 5px; padding: 2px 6px; border-radius: 4px; font-size: 11px; background: #2B3544; color: #acc5e3; border: 1px solid #4a5c75; display: inline-block;">{{ vuln.owasp }}</span>
+                            {% endif %}
                             <strong style="margin-left: 10px; font-size: 15px;">{{ vuln.name }}</strong>
                         </div>
                     </div>

@@ -41,12 +41,36 @@
                 <td><span class="vuln-badge">{{ report.result_json.vulnerabilities|length|default:0 }}</span></td>
                 
                 <td onclick="event.stopPropagation();">
-                    <select class="schedule-dropdown" onchange="toggleSchedule({{ report.id }}, this)" data-current="{{ report.schedule_interval|default:0 }}">
-                        <option value="0" {% if not report.is_scheduled or report.schedule_interval == 0 %}selected{% endif %}>Off</option>
-                        <option value="1" {% if report.is_scheduled and report.schedule_interval == 1 %}selected{% endif %}>Daily</option>
-                        <option value="7" {% if report.is_scheduled and report.schedule_interval == 7 %}selected{% endif %}>Weekly</option>
-                        <option value="30" {% if report.is_scheduled and report.schedule_interval == 30 %}selected{% endif %}>Monthly</option>
-                    </select>
+                    <div style="display: flex; gap: 6px; align-items: flex-end;">
+                        {% with parts=report.cron_parts %}
+                        <div style="display: flex; gap: 3px;">
+                            <div class="cron-field-wrapper">
+                                <label>Min</label>
+                                <input type="text" id="cron-min-{{ report.id }}" class="schedule-input cron-part" value="{% if report.is_scheduled %}{{ parts.0 }}{% else %}*{% endif %}" title="Minute (0-59)">
+                            </div>
+                            <div class="cron-field-wrapper">
+                                <label>Hr</label>
+                                <input type="text" id="cron-hr-{{ report.id }}" class="schedule-input cron-part" value="{% if report.is_scheduled %}{{ parts.1 }}{% else %}*{% endif %}" title="Hour (0-23)">
+                            </div>
+                            <div class="cron-field-wrapper">
+                                <label>Day</label>
+                                <input type="text" id="cron-day-{{ report.id }}" class="schedule-input cron-part" value="{% if report.is_scheduled %}{{ parts.2 }}{% else %}*{% endif %}" title="Day of Month (1-31)">
+                            </div>
+                            <div class="cron-field-wrapper">
+                                <label>Mon</label>
+                                <input type="text" id="cron-mon-{{ report.id }}" class="schedule-input cron-part" value="{% if report.is_scheduled %}{{ parts.3 }}{% else %}*{% endif %}" title="Month (1-12)">
+                            </div>
+                            <div class="cron-field-wrapper">
+                                <label>Wk</label>
+                                <input type="text" id="cron-wk-{{ report.id }}" class="schedule-input cron-part" value="{% if report.is_scheduled %}{{ parts.4 }}{% else %}*{% endif %}" title="Day of Week (0-6)">
+                            </div>
+                        </div>
+                        {% endwith %}
+                        <div style="display: flex; gap: 3px; height: 26px;">
+                            <button class="cron-save-btn" onclick="toggleSchedule({{ report.id }}, this)">Set</button>
+                            <button class="cron-off-btn" onclick="turnOffSchedule({{ report.id }}, this)">Off</button>
+                        </div>
+                    </div>
                 </td>
                 
                 <td onclick="event.stopPropagation();">
@@ -132,7 +156,7 @@
         border-bottom: none;
     }
     
-    .schedule-dropdown {
+    .schedule-input {
         background: var(--bg-hover);
         color: var(--text-color);
         border: 1px solid var(--border-color);
@@ -141,17 +165,62 @@
         outline: none;
         font-family: inherit;
         font-size: 0.9em;
-        cursor: pointer;
+        width: 100px;
     }
-    .schedule-dropdown:focus {
+    .schedule-input:focus {
         border-color: var(--accent);
+    }
+    .cron-part {
+        width: 25px;
+        text-align: center;
+        padding: 4px;
+        font-family: monospace;
+    }
+    .cron-field-wrapper {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+    }
+    .cron-field-wrapper label {
+        font-size: 0.65rem;
+        color: var(--text-muted, #8b949e);
+    }
+    .cron-save-btn {
+        background: rgba(88, 166, 255, 0.1);
+        color: #58a6ff;
+        border: 1px solid rgba(88, 166, 255, 0.2);
+        padding: 0 8px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.8rem;
+        transition: all 0.2s;
+    }
+    .cron-save-btn:hover {
+        background: #58a6ff;
+        color: #fff;
+    }
+    .cron-off-btn {
+        background: rgba(248, 81, 73, 0.1);
+        color: #f85149;
+        border: 1px solid rgba(248, 81, 73, 0.2);
+        padding: 0 8px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.8rem;
+        transition: all 0.2s;
+    }
+    .cron-off-btn:hover {
+        background: #f85149;
+        color: #fff;
     }
 </style>
 
 <script>
-function toggleSchedule(reportId, selectElem) {
-    const val = selectElem.value;
-    const oldVal = selectElem.getAttribute('data-current') || "0";
+function sendCronUpdate(reportId, cronValue, btn) {
+    const originalText = btn.innerText;
+    const isOff = (cronValue === 'off');
+    btn.innerText = '...';
     
     fetch(`/history/toggle_schedule/${reportId}/`, {
         method: 'POST',
@@ -159,21 +228,52 @@ function toggleSchedule(reportId, selectElem) {
             'X-CSRFToken': '{{ csrf_token }}',
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify({'interval': parseInt(val)})
+        body: JSON.stringify({'cron': cronValue})
     })
     .then(response => response.json())
     .then(data => {
+        btn.innerText = originalText;
         if (data.status !== 'success') {
-            console.error('Failed to update schedule:', data.message);
-            selectElem.value = oldVal; // revert
+            alert('Failed to set schedule: ' + data.message);
         } else {
-            selectElem.setAttribute('data-current', val);
+            btn.style.background = isOff ? '#C44343' : '#2ea043';
+            btn.style.color = 'white';
+            setTimeout(() => {
+                btn.style.background = '';
+                btn.style.color = '';
+            }, 1000);
+            
+            if (isOff) {
+                // reset visual inputs to asterisks
+                document.getElementById('cron-min-' + reportId).value = '*';
+                document.getElementById('cron-hr-' + reportId).value = '*';
+                document.getElementById('cron-day-' + reportId).value = '*';
+                document.getElementById('cron-mon-' + reportId).value = '*';
+                document.getElementById('cron-wk-' + reportId).value = '*';
+            }
         }
     })
     .catch(error => {
+        btn.innerText = originalText;
         console.error('Error updating schedule:', error);
-        selectElem.value = oldVal; // revert
+        alert('An error occurred while saving the schedule.');
     });
+}
+
+function toggleSchedule(reportId, btn) {
+    const min = document.getElementById('cron-min-' + reportId).value.trim() || '*';
+    const hr = document.getElementById('cron-hr-' + reportId).value.trim() || '*';
+    const day = document.getElementById('cron-day-' + reportId).value.trim() || '*';
+    const mon = document.getElementById('cron-mon-' + reportId).value.trim() || '*';
+    const wk = document.getElementById('cron-wk-' + reportId).value.trim() || '*';
+    
+    const cronValue = `${min} ${hr} ${day} ${mon} ${wk}`;
+    
+    sendCronUpdate(reportId, cronValue, btn);
+}
+
+function turnOffSchedule(reportId, btn) {
+    sendCronUpdate(reportId, 'off', btn);
 }
 </script>
 {% endblock %}

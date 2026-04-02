@@ -12,7 +12,14 @@ class ScanReport(models.Model):
     status = models.CharField(max_length=50, default="Pending")
     result_json = models.JSONField(default=dict, blank=True)
     is_scheduled = models.BooleanField(default=False)
-    schedule_interval = models.IntegerField(default=0)
+    cron_expression = models.CharField(max_length=100, default="")
+
+    @property
+    def cron_parts(self):
+        parts = self.cron_expression.split()
+        if len(parts) == 5:
+            return parts
+        return ['*', '*', '*', '*', '*']
 
     def __str__(self):
         return f"{self.target_url} - {self.status}"

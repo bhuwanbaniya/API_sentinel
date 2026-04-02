@@ -4,6 +4,7 @@ import re
 import time
 import base64
 import json
+import socket
 from urllib.parse import urlparse, urljoin
 
 # ==============================================================================
@@ -29,13 +30,13 @@ class APIScanner:
     def check_https(self):
         if not self.target_base_url: return
         if urlparse(self.target_base_url).scheme != 'https':
-            self.report["vulnerabilities"].append({"name": "Unencrypted Transport", "severity": "High", "description": "API is available via HTTP."})
+            self.report["vulnerabilities"].append({"name": "Unencrypted Transport", "severity": "High", "description": "API is available via HTTP.", "cvss": 5.9, "owasp": "API8:2023 Security Misconfiguration"})
     
     def check_auth_definitions(self):
         if not self.api_spec: return
         sec = self.api_spec.get('components', {}).get('securitySchemes', {}) or self.api_spec.get('securityDefinitions', {})
         if not sec:
-            self.report["vulnerabilities"].append({"name": "Missing Auth Definitions", "severity": "Medium", "description": "No global security schemes found."})
+            self.report["vulnerabilities"].append({"name": "Missing Auth Definitions", "severity": "Medium", "description": "No global security schemes found.", "cvss": 5.3, "owasp": "API2:2023 Broken Authentication"})
 
     def check_security_headers(self):
         if not self.target_base_url: return
@@ -43,7 +44,7 @@ class APIScanner:
             headers = requests.get(self.target_base_url, timeout=5).headers
             missing = [h for h in ["X-Content-Type-Options", "X-Frame-Options", "Content-Security-Policy"] if h not in headers]
             if missing:
-                self.report["vulnerabilities"].append({"name": "Missing Security Headers", "severity": "Low", "description": f"Missing headers: {', '.join(missing)}"})
+                self.report["vulnerabilities"].append({"name": "Missing Security Headers", "severity": "Low", "description": f"Missing headers: {', '.join(missing)}", "cvss": 3.1, "owasp": "API8:2023 Security Misconfiguration"})
         except: pass
 
     def parse_endpoints(self):
@@ -82,7 +83,7 @@ def check_broken_authentication(method, path, base_url, logger=None):
         url = f"{clean_base}{re.sub(r'\{.*?\}', '1', path)}"
         res = requests.request(method, url, timeout=5) 
         if res.status_code not in [401, 403]: 
-            return {"name": "Broken Authentication", "severity": "High", "description": f"Endpoint {method} {path} processed request without auth (Status: {res.status_code})."}
+            return {"name": "Broken Authentication", "severity": "High", "description": f"Endpoint {method} {path} processed request without auth (Status: {res.status_code}).", "cvss": 8.8, "owasp": "API2:2023 Broken Authentication"}
     except: pass
     return None
 
@@ -95,7 +96,7 @@ def check_bola_vulnerability(method, path, base_url, auth_headers):
         res1 = requests.request(method, url1, headers=auth_headers, timeout=5)
         res2 = requests.request(method, url2, headers=auth_headers, timeout=5)
         if res1.status_code == 200 and res2.status_code == 200 and abs(len(res1.content) - len(res2.content)) < 50:
-            return {"name": "BOLA / IDOR", "severity": "High", "description": f"Endpoint {path} allows accessing multiple object IDs."}
+            return {"name": "BOLA / IDOR", "severity": "High", "description": f"Endpoint {path} allows accessing multiple object IDs.", "cvss": 8.5, "owasp": "API1:2023 Broken Object Level Authorization"}
     except: pass
     return None
 
@@ -106,7 +107,7 @@ def check_injection(method, path, base_url, auth_headers):
         url = f"{clean_base}{path}?id=' OR 1=1--"
         res = requests.request(method, url, headers=auth_headers, timeout=5)
         if res.status_code == 500 or "sql" in res.text.lower():
-            return {"name": "SQL Injection", "severity": "High", "description": f"Endpoint {path} returned database error."}
+            return {"name": "SQL Injection", "severity": "High", "description": f"Endpoint {path} returned database error.", "cvss": 9.8, "owasp": "API8:2023 Security Misconfiguration"}
     except: pass
     return None
 
@@ -117,7 +118,7 @@ def check_rate_limit(method, path, base_url, auth_headers):
         for _ in range(5):
             res = requests.request(method, url, headers=auth_headers, timeout=1)
             if res.status_code == 429: return None
-        return {"name": "Missing Rate Limiting", "severity": "Medium", "description": "Endpoint allowed rapid burst requests."}
+        return {"name": "Missing Rate Limiting", "severity": "Medium", "description": "Endpoint allowed rapid burst requests.", "cvss": 5.3, "owasp": "API4:2023 Unrestricted Resource Consumption"}
     except: pass
     return None
 
@@ -129,7 +130,7 @@ def check_sensitive_data(method, path, base_url, auth_headers):
         url = f"{clean_base}{re.sub(r'\{.*?\}', '1', path)}"
         res = requests.get(url, headers=auth_headers, timeout=5)
         found = [k for k, v in patterns.items() if re.search(v, res.text)]
-        if found: return {"name": "Excessive Data Exposure", "severity": "High", "description": f"Endpoint leaked: {', '.join(found)}"}
+        if found: return {"name": "Excessive Data Exposure", "severity": "High", "description": f"Endpoint leaked: {', '.join(found)}", "cvss": 7.5, "owasp": "API3:2023 Broken Object Property Level Auth"}
     except: pass
     return None
 
@@ -141,7 +142,7 @@ def check_mass_assignment(method, path, base_url, auth_headers):
         url = f"{clean_base}{path}"
         res = requests.request(method, url, json=payload, headers=auth_headers, timeout=5)
         if res.status_code in [200, 201] and ("admin" in res.text.lower() or "true" in res.text.lower()):
-            return {"name": "Potential Mass Assignment", "severity": "Medium", "description": f"Endpoint {method} {path} accepted a payload with 'isAdmin'."}
+            return {"name": "Potential Mass Assignment", "severity": "Medium", "description": f"Endpoint {method} {path} accepted a payload with 'isAdmin'.", "cvss": 6.5, "owasp": "API3:2023 Broken Object Property Level Auth"}
     except: pass
     return None
 
@@ -151,7 +152,7 @@ def check_unsafe_methods(path, base_url):
         url = f"{clean_base}{path}"
         res = requests.request("TRACE", url, timeout=5)
         if res.status_code == 200:
-            return {"name": "Unsafe HTTP Method (TRACE)", "severity": "Low", "description": "Server enabled TRACE method."}
+            return {"name": "Unsafe HTTP Method (TRACE)", "severity": "Low", "description": "Server enabled TRACE method.", "cvss": 3.7, "owasp": "API8:2023 Security Misconfiguration"}
     except: pass
     return None
 
@@ -165,9 +166,9 @@ def check_jwt_weakness(auth_header):
         header_data = json.loads(base64.urlsafe_b64decode(padded))
         
         if header_data.get('alg', '').lower() == 'none':
-            return {"name": "Insecure JWT (None Alg)", "severity": "Critical", "description": "JWT allows 'None' algorithm."}
+            return {"name": "Insecure JWT (None Alg)", "severity": "Critical", "description": "JWT allows 'None' algorithm.", "cvss": 9.8, "owasp": "API2:2023 Broken Authentication"}
         if header_data.get('alg', '').upper() == 'HS256':
-            return {"name": "Weak JWT Key (HS256)", "severity": "Low", "description": "JWT uses symmetric HS256 key."}
+            return {"name": "Weak JWT Key (HS256)", "severity": "Low", "description": "JWT uses symmetric HS256 key.", "cvss": 4.8, "owasp": "API2:2023 Broken Authentication"}
     except: pass
     return None
 
@@ -179,8 +180,24 @@ def check_debug_endpoints(base_url):
             url = f"{clean_base}{p}"
             res = requests.get(url, timeout=3)
             if res.status_code == 200:
-                return {"name": "Exposed Sensitive Path", "severity": "Medium", "description": f"Path {p} is accessible."}
+                return {"name": "Exposed Sensitive Path", "severity": "Medium", "description": f"Path {p} is accessible.", "cvss": 5.8, "owasp": "API9:2023 Improper Inventory Management"}
         except: pass
+    return None
+
+def check_open_ports(base_url):
+    open_ports = []
+    try:
+        host = urlparse(base_url).hostname
+        if not host: return None
+        ports_to_check = {22: "SSH", 3306: "MySQL", 5432: "PostgreSQL", 27017: "MongoDB", 6379: "Redis"}
+        for port, service in ports_to_check.items():
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(0.5)
+                if s.connect_ex((host, port)) == 0:
+                    open_ports.append(f"{port} ({service})")
+        if open_ports:
+            return {"name": "Exposed Infrastructure Services", "severity": "High", "description": f"The following sensitive ports are publicly exposed: {', '.join(open_ports)}", "cvss": 7.5, "owasp": "API8:2023 Security Misconfiguration"}
+    except: pass
     return None
 
 # ==============================================================================
@@ -222,6 +239,11 @@ def start_scan(spec_content, base_url, auth_headers, scan_options=None, logger=N
         if vuln and vuln not in report["vulnerabilities"]:
             report["vulnerabilities"].append(vuln)
             log(f"     [!] Found: Exposed Hidden Path")
+            
+        vuln = check_open_ports(base_url)
+        if vuln and vuln not in report["vulnerabilities"]:
+            report["vulnerabilities"].append(vuln)
+            log(f"     [!] Found: Exposed Infrastructure Ports")
 
     if scan_options.get('jwt') and auth_headers.get('Authorization'):
         vuln = check_jwt_weakness(auth_headers.get('Authorization'))

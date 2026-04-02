@@ -24,6 +24,10 @@ import threading
 import sys
 import requests
 import time
+from concurrent.futures import ThreadPoolExecutor
+
+# Global thread pool for user-initiated scans to limit resource usage
+user_scan_pool = ThreadPoolExecutor(max_workers=3)
 
 # ==============================================================================
 # 1. AUTHENTICATION & 2FA VIEWS
@@ -216,10 +220,32 @@ def run_scan_in_background(report_id, spec_content, base_url, auth_headers, scan
         report.status = results.get("status", "Failed")
         report.save()
 
+        vulnerabilities = results.get('vulnerabilities', [])
+        
+        # Computed Diff Analysis
+        previous_report = ScanReport.objects.filter(
+            user=report.user, 
+            target_url=report.target_url, 
+            status='Success'
+        ).exclude(id=report_id).order_by('-scan_date').first()
+        
+        trend_summary = ""
+        trend_html = ""
+        new_vulns_count, fixed_vulns_count = 0, 0
+        if previous_report and previous_report.result_json:
+            prev_vulns = {v.get('name') for v in previous_report.result_json.get('vulnerabilities', [])}
+            curr_vulns = {v.get('name') for v in vulnerabilities}
+            new_vulns_count = len(curr_vulns - prev_vulns)
+            fixed_vulns_count = len(prev_vulns - curr_vulns)
+            report.result_json['trend'] = {'new': new_vulns_count, 'fixed': fixed_vulns_count}
+            report.save()
+            trend_summary = f"📈 **Trend Analysis:** {new_vulns_count} New Issues | {fixed_vulns_count} Fixed Issues"
+            trend_html = f"<h3>Trend Analysis</h3><p>🔴 {new_vulns_count} New Issues<br>🟢 {fixed_vulns_count} Fixed Issues</p>"
+
         # Webhook Alert
         if report.user and hasattr(report.user, 'userprofile') and report.user.userprofile.webhook_url:
             threshold = report.user.userprofile.webhook_threshold
-            vulnerabilities = results.get('vulnerabilities', [])
+
             
             highest_severity_val = 0
             for v in vulnerabilities:
@@ -251,6 +277,9 @@ def run_scan_in_background(report_id, spec_content, base_url, auth_headers, scan
                     vuln_text += f"\\n...and {len(vulnerabilities) - 10} more"
                 if not vuln_text:
                     vuln_text = "No vulnerabilities detected! ✅"
+                    
+                if trend_summary:
+                    vuln_text += f"\\n\\n{trend_summary}"
 
                 webhook_payload = {
                     "text": f"API Sentinel Scan Completed for {report.target_url}",
@@ -301,7 +330,6 @@ def run_scan_in_background(report_id, spec_content, base_url, auth_headers, scan
                         time.sleep(2)
 
         # Email Alert
-        vulnerabilities = results.get('vulnerabilities', [])
         
         # Fallback to the system's email if the user profile doesn't have an email address
         recipient_email = report.user.email if report.user and report.user.email else getattr(settings, 'EMAIL_HOST_USER', None)
@@ -315,6 +343,8 @@ def run_scan_in_background(report_id, spec_content, base_url, auth_headers, scan
             
             if not vulnerabilities:
                 vuln_list_html = "<li>No vulnerabilities detected!</li>"
+            
+            vuln_list_html += trend_html
             
             html_message = f"""
             <html>
@@ -439,8 +469,7 @@ def scan_view(request):
                     status="Running",
                     result_json={"scan_log": ["Initializing..."]}
                 )
-                thread = threading.Thread(target=run_scan_in_background, args=(new_report.id, spec_content, base_url, auth_headers, scan_options))
-                thread.start()
+                user_scan_pool.submit(run_scan_in_background, new_report.id, spec_content, base_url, auth_headers, scan_options)
                 return redirect('scan_progress', report_id=new_report.id)
             else:
                 messages.error(request, "Scan failed: Invalid input.")
@@ -471,14 +500,19 @@ def toggle_schedule_api(request, report_id):
     if request.method == 'POST':
         try:
             data = json.loads(request.body)
-            interval = int(data.get('interval', 0))
+            cron_expr = data.get('cron', '').strip()
         except (ValueError, TypeError, json.JSONDecodeError):
-            return JsonResponse({'status': 'error', 'message': 'Invalid interval parameters'}, status=400)
+            return JsonResponse({'status': 'error', 'message': 'Invalid parameters'}, status=400)
             
-        report.schedule_interval = interval
-        report.is_scheduled = interval > 0
+        # Basic validation can be done here by checking if it matches standard cron format (5 parts)
+        # Empty string turns off the schedule
+        if cron_expr and len(cron_expr.split()) != 5 and cron_expr != 'off':
+             return JsonResponse({'status': 'error', 'message': 'Invalid cron expression format. Expected 5 parts (e.g. * * * * *)'}, status=400)
+
+        report.cron_expression = cron_expr
+        report.is_scheduled = bool(cron_expr and cron_expr != 'off')
         report.save()
-        return JsonResponse({'status': 'success', 'is_scheduled': report.is_scheduled, 'interval': report.schedule_interval})
+        return JsonResponse({'status': 'success', 'is_scheduled': report.is_scheduled, 'cron': report.cron_expression})
     return JsonResponse({'status': 'error', 'message': 'Invalid Request'}, status=400)
 
 @login_required
@@ -530,19 +564,28 @@ def download_report_pdf(request, report_id):
     pdf.cell(0, 8, f"Target: {report.target_url}", ln=True)
     pdf.cell(0, 8, f"Date: {report.scan_date.strftime('%Y-%m-%d %H:%M')}", ln=True)
     pdf.cell(0, 8, f"User: {report.user.username if report.user else 'Unknown'}", ln=True)
+    pdf.cell(0, 8, f"Total Findings: {len(vulns)}", ln=True)
     pdf.ln(10)
 
-    pdf.set_font("Arial", "B", 14); pdf.cell(0, 10, "2. Findings", ln=True)
+    pdf.set_font("Arial", "B", 14); pdf.cell(0, 10, "2. Findings Detail", ln=True)
     for v in vulns:
         sev = str(v.get('severity', 'Low')).upper()
         pdf.set_font("Arial", "B", 11)
-        if sev == "HIGH": pdf.set_text_color(248, 81, 73)
+        if sev == "CRITICAL" or sev == "HIGH": pdf.set_text_color(248, 81, 73)
         elif sev == "MEDIUM": pdf.set_text_color(240, 173, 78)
         else: pdf.set_text_color(88, 166, 255)
-        pdf.cell(0, 8, f"[{sev}] {v.get('name')}", ln=True)
-        pdf.set_text_color(50, 50, 50); pdf.set_font("Arial", "", 10)
-        pdf.multi_cell(0, 6, v.get('description')); pdf.ln(4)
+        
+        cvss_text = f" (CVSS: {v.get('cvss')})" if v.get('cvss') else ""
+        pdf.cell(0, 8, f"[{sev}] {v.get('name')}{cvss_text}", ln=True)
+        
+        pdf.set_text_color(50, 50, 50); pdf.set_font("Arial", "I", 9)
+        if v.get('owasp'):
+            pdf.cell(0, 6, f"OWASP Category: {v.get('owasp')}", ln=True)
+            
+        pdf.set_font("Arial", "", 10)
+        pdf.multi_cell(0, 6, v.get('description'))
+        pdf.ln(4)
 
-    response = HttpResponse(bytes(pdf.output()), content_type='application/pdf')
+    response = HttpResponse(pdf.output(dest='S').encode('latin-1'), content_type='application/pdf')
     response['Content-Disposition'] = f'attachment; filename="Report_{report_id}.pdf"'
     return response

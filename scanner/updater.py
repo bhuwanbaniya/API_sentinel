@@ -1,7 +1,9 @@
 import logging
 import threading
+import croniter
 from urllib.parse import urlparse
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 from django_apscheduler.jobstores import DjangoJobStore, register_events
 from django.utils import timezone
 from scanner.models import ScanReport
@@ -41,11 +43,19 @@ def run_automated_scans():
                 target_url=target_url
             ).order_by('-scan_date').first()
             
-            if latest_scan and report.schedule_interval > 0:
-                # Evaluate elapsed days
-                days_elapsed = (timezone.now() - latest_scan.scan_date).days
-                if days_elapsed < report.schedule_interval:
-                    continue  # Interval not yet met, skip
+            if latest_scan and report.cron_expression:
+                try:
+                    # Check if the current time matches the cron expression
+                    if not croniter.croniter.match(report.cron_expression, timezone.now()):
+                        continue
+                        
+                    # Also ensure we don't run multiple times in the same minute
+                    elapsed_seconds = (timezone.now() - latest_scan.scan_date).total_seconds()
+                    if elapsed_seconds < 60:
+                        continue
+                except ValueError:
+                    print(f"Invalid cron expression '{report.cron_expression}' for {target_url}")
+                    continue
             
             print(f"Starting automated scan for user {user.username} on {target_url}")
             
@@ -86,13 +96,10 @@ def start_scheduler():
     scheduler = BackgroundScheduler()
     scheduler.add_jobstore(DjangoJobStore(), "default")
 
-    # Set to run every 12 hours.  24 hours, or even 1 minute for testing.
+    # Execute automated scans every minute; the internal logic handles if an interval has actually elapsed.
     scheduler.add_job(
         run_automated_scans,
-        trigger="interval",
-        hours=12,
-        #minutes=4,
-        next_run_time=timezone.now(),
+        trigger=CronTrigger.from_crontab("* * * * *"),
         id="automated_api_scan_job",
         max_instances=1,
         replace_existing=True,
