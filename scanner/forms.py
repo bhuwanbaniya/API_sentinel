@@ -2,6 +2,11 @@ from django import forms
 from .models import UserProfile
 
 class UserProfileForm(forms.ModelForm):
+    email = forms.EmailField(
+        required=False,
+        label='Email Address (For Scan Reports)',
+        widget=forms.EmailInput(attrs={'class': 'form-input', 'placeholder': 'your.email@example.com'})
+    )
     webhook_url = forms.URLField(
         required=False,
         label='Webhook URL for Notifications (Slack/Discord/Teams)',
@@ -17,6 +22,20 @@ class UserProfileForm(forms.ModelForm):
     class Meta:
         model = UserProfile
         fields = ['webhook_url', 'webhook_threshold']
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance and hasattr(self.instance, 'user'):
+            self.fields['email'].initial = self.instance.user.email
+
+    def save(self, commit=True):
+        profile = super().save(commit=False)
+        user = profile.user
+        user.email = self.cleaned_data.get('email', '')
+        if commit:
+            user.save()
+            profile.save()
+        return profile
 
 class APIScanForm(forms.Form):
     target_url = forms.URLField(

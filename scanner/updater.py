@@ -45,8 +45,9 @@ def run_automated_scans():
             
             if latest_scan and report.cron_expression:
                 try:
-                    # Check if the current time matches the cron expression
-                    if not croniter.croniter.match(report.cron_expression, timezone.now()):
+                    # Check if the current time (ignoring seconds/microseconds) matches the cron expression
+                    current_minute = timezone.now().replace(second=0, microsecond=0)
+                    if not croniter.croniter.match(report.cron_expression, current_minute):
                         continue
                         
                     # Also ensure we don't run multiple times in the same minute
@@ -105,7 +106,7 @@ def start_scheduler():
         replace_existing=True,
     )
 
-    register_events(scheduler)
+    # register_events(scheduler) # <-- COMMENTED OUT to fix "database is locked" errors
     try:
         scheduler.start()
         print("Scheduler started routing automated scans...")

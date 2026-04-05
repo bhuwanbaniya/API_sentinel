@@ -331,8 +331,8 @@ def run_scan_in_background(report_id, spec_content, base_url, auth_headers, scan
 
         # Email Alert
         
-        # Fallback to the system's email if the user profile doesn't have an email address
-        recipient_email = report.user.email if report.user and report.user.email else getattr(settings, 'EMAIL_HOST_USER', None)
+        # We only send an email if the user has explicitly provided an email address
+        recipient_email = report.user.email if report.user and report.user.email else None
         
         if recipient_email:
             # Generate HTML email content
