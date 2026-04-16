@@ -53,7 +53,7 @@ class APIScanForm(forms.Form):
         widget=forms.TextInput(attrs={'size': '50', 'placeholder': 'Authorization: Bearer ey...'})
     )
 
-    # --- CHECKBOXES FOR MODULES ---
+    # --- DAST MODULES ---
     scan_broken_auth = forms.BooleanField(required=False, initial=True, label="Check for Broken Authentication")
     scan_bola = forms.BooleanField(required=False, initial=True, label="Check for BOLA")
     scan_injection = forms.BooleanField(required=False, initial=True, label="Check for Injection (SQLi)")
@@ -62,3 +62,15 @@ class APIScanForm(forms.Form):
     # --- NEW MODULES ---
     scan_jwt = forms.BooleanField(required=False, initial=True, label="Check for Weak JWT Config")
     scan_debug = forms.BooleanField(required=False, initial=True, label="Check for Exposed Debug/Admin Paths")
+
+    # --- SAST MODULES (Git) ---
+    git_url = forms.URLField(
+        required=False,
+        label='Or Paste a Public Git Repository URL for Static Analysis (SAST)',
+        widget=forms.URLInput(attrs={'size': '50', 'placeholder': 'https://github.com/user/repo.git'})
+    )
+    scan_sast_shadow_api = forms.BooleanField(required=False, initial=True, label="SAST: Discover Shadow APIs")
+    scan_sast_secrets = forms.BooleanField(required=False, initial=True, label="SAST: Scan for Hardcoded Secrets")
+    scan_sast_sqli = forms.BooleanField(required=False, initial=True, label="SAST: Scan for Insecure DB Queries (SQLi)")
+    scan_sast_cors = forms.BooleanField(required=False, initial=True, label="SAST: Check Insecure Wildcard CORS")
+    scan_sast_ratelimit = forms.BooleanField(required=False, initial=True, label="SAST: Check Missing Rate Limiters")

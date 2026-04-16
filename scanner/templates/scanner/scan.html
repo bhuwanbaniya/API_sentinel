@@ -23,14 +23,22 @@
         {% csrf_token %}
         
         <!-- Targets -->
+        <h3 style="color: var(--text-main); font-size: 1.1rem; margin-bottom: 15px; font-weight: 500;">Dynamic Analysis (DAST)</h3>
         <div style="margin-bottom: 20px;">
             <label>{{ form.target_url.label }}</label>
             {{ form.target_url }}
         </div>
-        <p style="text-align: center; font-weight: 500; margin: 20px 0; color: var(--text-muted);">OR</p>
+        <p style="text-align: center; font-weight: 500; margin: 10px 0; color: var(--text-muted);">OR</p>
         <div style="margin-bottom: 20px;">
             <label>{{ form.api_file.label }}</label>
             {{ form.api_file }}
+        </div>
+        
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid var(--card-border);">
+        <h3 style="color: var(--text-main); font-size: 1.1rem; margin-bottom: 15px; font-weight: 500;">Static Analysis (SAST)</h3>
+        <div style="margin-bottom: 20px;">
+            <label>{{ form.git_url.label }}</label>
+            {{ form.git_url }}
         </div>
         
         <hr style="margin: 30px 0; border: none; border-top: 1px solid var(--card-border);">
@@ -65,6 +73,22 @@
             </div>
             <div style="background: #14161A; padding: 15px; border-radius: 4px; border: 1px solid var(--card-border); display: flex; align-items: center;">
                 {{ form.scan_debug }} <span style="margin-left: 10px; color: var(--text-main); font-size: 13px;">{{ form.scan_debug.label }}</span>
+            </div>
+            <!-- SAST OPTIONS -->
+            <div style="background: #14161A; padding: 15px; border-radius: 4px; border: 1px solid var(--card-border); display: flex; align-items: center;">
+                {{ form.scan_sast_shadow_api }} <span style="margin-left: 10px; color: var(--text-main); font-size: 13px;">{{ form.scan_sast_shadow_api.label }}</span>
+            </div>
+            <div style="background: #14161A; padding: 15px; border-radius: 4px; border: 1px solid var(--card-border); display: flex; align-items: center;">
+                {{ form.scan_sast_secrets }} <span style="margin-left: 10px; color: var(--text-main); font-size: 13px;">{{ form.scan_sast_secrets.label }}</span>
+            </div>
+            <div style="background: #14161A; padding: 15px; border-radius: 4px; border: 1px solid var(--card-border); display: flex; align-items: center;">
+                {{ form.scan_sast_sqli }} <span style="margin-left: 10px; color: var(--text-main); font-size: 13px;">{{ form.scan_sast_sqli.label }}</span>
+            </div>
+            <div style="background: #14161A; padding: 15px; border-radius: 4px; border: 1px solid var(--card-border); display: flex; align-items: center;">
+                {{ form.scan_sast_cors }} <span style="margin-left: 10px; color: var(--text-main); font-size: 13px;">{{ form.scan_sast_cors.label }}</span>
+            </div>
+            <div style="background: #14161A; padding: 15px; border-radius: 4px; border: 1px solid var(--card-border); display: flex; align-items: center;">
+                {{ form.scan_sast_ratelimit }} <span style="margin-left: 10px; color: var(--text-main); font-size: 13px;">{{ form.scan_sast_ratelimit.label }}</span>
             </div>
         </div>
 

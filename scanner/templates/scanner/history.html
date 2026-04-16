@@ -8,10 +8,16 @@
 </div>
 
 <div class="card">
-    <table class="history-table">
-        <thead>
-            <tr>
-                <th>Target</th>
+    <form method="post" action="{% url 'bulk_delete_reports' %}" id="bulk-delete-form">
+        {% csrf_token %}
+        <div style="margin-bottom: 10px; display: flex; justify-content: flex-end;">
+            <button type="submit" class="btn btn-danger" onclick="return confirm('Delete selected reports?');" style="background:#f85149; border:none; padding:6px 12px; border-radius:4px; color:#fff; cursor:pointer;">Delete Selected</button>
+        </div>
+        <table class="history-table">
+            <thead>
+                <tr>
+                    <th style="width: 30px;"><input type="checkbox" id="select-all" onclick="toggleAll(this)"></th>
+                    <th>Target</th>
                 <th>Status</th>
                 <th>Date</th>
                 <th>Vulns</th>
@@ -25,6 +31,9 @@
             <tr style="cursor: pointer;" 
                 onclick="window.location='{% if report.status == 'Running' %}{% url 'scan_progress' report.id %}{% else %}{% url 'report_detail' report.id %}{% endif %}';">
                 
+                <td onclick="event.stopPropagation();">
+                    <input type="checkbox" name="report_ids" value="{{ report.id }}" class="bulk-check">
+                </td>
                 <td>{{ report.target_url|truncatechars:50 }}</td>
                 <td>
                     {% if report.status == "Success" %}
@@ -67,8 +76,8 @@
                         </div>
                         {% endwith %}
                         <div style="display: flex; gap: 3px; height: 26px;">
-                            <button class="cron-save-btn" onclick="toggleSchedule({{ report.id }}, this)">Set</button>
-                            <button class="cron-off-btn" onclick="turnOffSchedule({{ report.id }}, this)">Off</button>
+                            <button id="set-btn-{{ report.id }}" class="cron-save-btn {% if report.is_scheduled %}active-set{% endif %}" onclick="toggleSchedule({{ report.id }}, this)">Set</button>
+                            <button id="off-btn-{{ report.id }}" class="cron-off-btn {% if not report.is_scheduled %}active-off{% endif %}" onclick="turnOffSchedule({{ report.id }}, this)">Off</button>
                         </div>
                     </div>
                 </td>
@@ -81,10 +90,11 @@
                 </td>
             </tr>
             {% empty %}
-            <tr><td colspan="5" style="text-align: center; padding: 1rem; color: var(--text-muted);">No scan history found.</td></tr>
+            <tr><td colspan="6" style="text-align: center; padding: 1rem; color: var(--text-muted);">No scan history found.</td></tr>
             {% endfor %}
         </tbody>
     </table>
+    </form>
 </div>
 
 <style>
@@ -196,7 +206,7 @@
         font-size: 0.8rem;
         transition: all 0.2s;
     }
-    .cron-save-btn:hover {
+    .cron-save-btn:hover, .cron-save-btn.active-set {
         background: #58a6ff;
         color: #fff;
     }
@@ -210,7 +220,7 @@
         font-size: 0.8rem;
         transition: all 0.2s;
     }
-    .cron-off-btn:hover {
+    .cron-off-btn:hover, .cron-off-btn.active-off {
         background: #f85149;
         color: #fff;
     }
@@ -236,20 +246,21 @@ function sendCronUpdate(reportId, cronValue, btn) {
         if (data.status !== 'success') {
             alert('Failed to set schedule: ' + data.message);
         } else {
-            btn.style.background = isOff ? '#C44343' : '#2ea043';
-            btn.style.color = 'white';
-            setTimeout(() => {
-                btn.style.background = '';
-                btn.style.color = '';
-            }, 1000);
+            const setBtn = document.getElementById('set-btn-' + reportId);
+            const offBtn = document.getElementById('off-btn-' + reportId);
             
             if (isOff) {
+                if (setBtn) setBtn.classList.remove('active-set');
+                if (offBtn) offBtn.classList.add('active-off');
                 // reset visual inputs to asterisks
                 document.getElementById('cron-min-' + reportId).value = '*';
                 document.getElementById('cron-hr-' + reportId).value = '*';
                 document.getElementById('cron-day-' + reportId).value = '*';
                 document.getElementById('cron-mon-' + reportId).value = '*';
                 document.getElementById('cron-wk-' + reportId).value = '*';
+            } else {
+                if (setBtn) setBtn.classList.add('active-set');
+                if (offBtn) offBtn.classList.remove('active-off');
             }
         }
     })
@@ -261,11 +272,29 @@ function sendCronUpdate(reportId, cronValue, btn) {
 }
 
 function toggleSchedule(reportId, btn) {
-    const min = document.getElementById('cron-min-' + reportId).value.trim() || '*';
-    const hr = document.getElementById('cron-hr-' + reportId).value.trim() || '*';
-    const day = document.getElementById('cron-day-' + reportId).value.trim() || '*';
-    const mon = document.getElementById('cron-mon-' + reportId).value.trim() || '*';
-    const wk = document.getElementById('cron-wk-' + reportId).value.trim() || '*';
+    let min = document.getElementById('cron-min-' + reportId).value.trim() || '*';
+    let hr = document.getElementById('cron-hr-' + reportId).value.trim() || '*';
+    let day = document.getElementById('cron-day-' + reportId).value.trim() || '*';
+    let mon = document.getElementById('cron-mon-' + reportId).value.trim() || '*';
+    let wk = document.getElementById('cron-wk-' + reportId).value.trim() || '*';
+    
+    // Auto-covert plain numbers into correct interval expressions (e.g. "1" -> "*/1")
+    if (/^\d+$/.test(min)) {
+        min = '*/' + parseInt(min, 10);
+    }
+    
+    if (/^\d+$/.test(hr)) {
+        hr = '*/' + parseInt(hr, 10);
+        // If hour is an interval, minute must be 0 to avoid running 60 times during that hour
+        if (min === '*') min = '0';
+    }
+    
+    if (/^\d+$/.test(day)) {
+        day = '*/' + parseInt(day, 10);
+        // If day is an interval, hr/min must be 0 to avoid running 24x60 times that day
+        if (hr === '*') hr = '0';
+        if (min === '*') min = '0';
+    }
     
     const cronValue = `${min} ${hr} ${day} ${mon} ${wk}`;
     
@@ -274,6 +303,13 @@ function toggleSchedule(reportId, btn) {
 
 function turnOffSchedule(reportId, btn) {
     sendCronUpdate(reportId, 'off', btn);
+}
+
+function toggleAll(source) {
+    checkboxes = document.querySelectorAll('.bulk-check');
+    for (var i = 0; i < checkboxes.length; i++) {
+        checkboxes[i].checked = source.checked;
+    }
 }
 </script>
 {% endblock %}

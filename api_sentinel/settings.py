@@ -37,6 +37,7 @@ ALLOWED_HOSTS = []
 
 # In api_sentinel/settings.py
 INSTALLED_APPS = [
+    'jazzmin',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -119,7 +120,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Asia/Kathmandu'
 
 USE_I18N = True
 
@@ -146,3 +147,13 @@ EMAIL_PORT = int(os.environ.get('EMAIL_PORT', 587))
 EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True') == 'True'
 EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', 'your_email@gmail.com')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', 'your_app_password')
+
+JAZZMIN_SETTINGS = {
+    "site_title": "API Sentinel Admin",
+    "site_header": "API Sentinel",
+    "site_brand": "API Sentinel",
+    "welcome_sign": "Welcome to API Sentinel Dashboard",
+    "copyright": "API Sentinel",
+    "show_ui_builder": True,
+}
+

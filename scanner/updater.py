@@ -17,7 +17,8 @@ logger = logging.getLogger(__name__)
 automated_scan_pool = ThreadPoolExecutor(max_workers=2)
 
 def run_automated_scans():
-    print(f"[{timezone.now()}] Running automated scheduled API scans...")
+    print(">>> CRON SCHEDULER TICK: " + str(timezone.now()))
+    with open('tick_debug.log', 'a') as f: f.write(str(timezone.now()) + '\n')
     try:
         # Import inside the function to avoid circular import issues
         from scanner.scan_engine import fetch_swagger_from_url
@@ -43,19 +44,34 @@ def run_automated_scans():
                 target_url=target_url
             ).order_by('-scan_date').first()
             
-            if latest_scan and report.cron_expression:
+            if not report.cron_expression:
+                continue
+                
+            if latest_scan:
                 try:
-                    # Check if the current time (ignoring seconds/microseconds) matches the cron expression
-                    current_minute = timezone.now().replace(second=0, microsecond=0)
-                    if not croniter.croniter.match(report.cron_expression, current_minute):
+                    import datetime
+                    
+                    # So user-defined cron expressions align exactly with their computer clock.
+                    local_now = timezone.localtime(timezone.now())
+                    
+                    # Calculate the most recent scheduled run time relative to exactly now
+                    cron = croniter.croniter(report.cron_expression, local_now)
+                    prev_run_local = cron.get_prev(datetime.datetime)
+                    
+                    # Check if the exact scheduled run time passed within the last 65 seconds
+                    # This prevents "catching up" on missed scans from hours/days ago if the server was offline
+                    elapsed_since_scheduled = (local_now.replace(tzinfo=None) - prev_run_local.replace(tzinfo=None)).total_seconds()
+                    
+                    if elapsed_since_scheduled > 65 or elapsed_since_scheduled < 0:
                         continue
                         
-                    # Also ensure we don't run multiple times in the same minute
-                    elapsed_seconds = (timezone.now() - latest_scan.scan_date).total_seconds()
-                    if elapsed_seconds < 60:
-                        continue
-                except ValueError:
-                    print(f"Invalid cron expression '{report.cron_expression}' for {target_url}")
+                    # Also ensure we don't accidentally run multiple times for a schedule (debounce)
+                    if latest_scan:
+                        elapsed_since_last_scan = (timezone.now() - latest_scan.scan_date).total_seconds()
+                        if elapsed_since_last_scan < 60:
+                            continue
+                except Exception as e:
+                    print(f"Invalid cron expression '{report.cron_expression}' for {target_url}: {e}")
                     continue
             
             print(f"Starting automated scan for user {user.username} on {target_url}")
@@ -87,6 +103,15 @@ def run_automated_scans():
                 print(f"Automated scan queued for {target_url} (Report ID: {new_report.id})")
             else:
                 print(f"Could not fetch swagger from {target_url}. Scan skipped.")
+                # Create a failed record so the cron timeline advances and stops retrying every minute
+                ScanReport.objects.create(
+                    user=user,
+                    target_url=target_url,
+                    scan_date=timezone.now(),
+                    status="Failed",
+                    is_scheduled=False,
+                    result_json={"scan_log": ["Automated scheduled scan failed: Target machine could not be reached."]}
+                )
                     
     except Exception as e:
         print(f"Error in automated scans: {e}")
@@ -95,7 +120,7 @@ def run_automated_scans():
 
 def start_scheduler():
     scheduler = BackgroundScheduler()
-    scheduler.add_jobstore(DjangoJobStore(), "default")
+    # Removed DjangoJobStore to prevent SQLite "database is locked" issues, defaults to MemoryJobStore.
 
     # Execute automated scans every minute; the internal logic handles if an interval has actually elapsed.
     scheduler.add_job(
@@ -110,6 +135,7 @@ def start_scheduler():
     try:
         scheduler.start()
         print("Scheduler started routing automated scans...")
+        return scheduler
     except Exception as e:
         print(f"Error starting scheduler: {e}")
         logger.error("Error starting scheduler: %s", e)

@@ -13,9 +13,14 @@
     </div>
     <div style="display: flex; gap: 10px; align-items: center;">
         <a href="{% url 'scan_history' %}" class="btn btn-secondary" style="font-size: 13px; padding: 8px 15px;">&larr; Back to History</a>
-        <a href="{% url 'download_pdf' report.id %}" class="btn" style="background: #40A8A8; font-size: 13px; padding: 8px 15px;">
-            Download PDF Report
-        </a>
+        <div style="display: flex; gap: 5px;">
+            <a href="{% url 'download_pdf' report.id %}" class="btn" style="background: #40A8A8; font-size: 13px; padding: 8px 15px;">
+                Download PDF
+            </a>
+            <a href="{% url 'download_sarif' report.id %}" class="btn btn-secondary" style="font-size: 13px; padding: 8px 15px;">
+                Export SARIF
+            </a>
+        </div>
     </div>
 </div>
 

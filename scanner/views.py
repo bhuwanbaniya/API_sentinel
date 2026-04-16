@@ -11,7 +11,11 @@ from django.conf import settings
 from .forms import APIScanForm, UserProfileForm
 from .models import ScanReport, UserProfile
 from .scan_engine import start_scan, fetch_swagger_from_url
+from .sast_engine import start_sast_scan
 from .remediation import get_remediation
+import tempfile
+import subprocess
+import shutil
 from collections import Counter
 from urllib.parse import urlparse
 from fpdf import FPDF
@@ -197,7 +201,7 @@ def test_webhook_api(request):
 # ==============================================================================
 
 # Helper for Background Thread
-def run_scan_in_background(report_id, spec_content, base_url, auth_headers, scan_options):
+def run_scan_in_background(report_id, spec_content, base_url, auth_headers, scan_options, is_sast=False, git_url=None):
     try:
         def db_logger(msg):
             try:
@@ -209,7 +213,23 @@ def run_scan_in_background(report_id, spec_content, base_url, auth_headers, scan
                 r.save()
             except: pass
 
-        results = start_scan(spec_content, base_url, auth_headers, scan_options, logger=db_logger, report_id=report_id)
+        if is_sast and git_url:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                db_logger(f"[*] Cloning repository {git_url} into secure temporary directory...")
+                try:
+                    subprocess.run(["git", "clone", git_url, temp_dir], check=True, capture_output=True, text=True)
+                    db_logger(f"[+] Repository cloned successfully.")
+                except subprocess.CalledProcessError as e:
+                    db_logger(f"[-] Failed to clone repository: {e.stderr}")
+                    report = ScanReport.objects.get(id=report_id)
+                    report.status = "Failed"
+                    report.save()
+                    return
+
+                results = start_sast_scan(temp_dir, scan_options, logger=db_logger, report_id=report_id)
+                db_logger("[*] Cleaning up temporary directory...")
+        else:
+            results = start_scan(spec_content, base_url, auth_headers, scan_options, logger=db_logger, report_id=report_id)
         
         report = ScanReport.objects.get(id=report_id)
         if report.status == "Stopped": return
@@ -437,6 +457,8 @@ def scan_view(request):
             api_file = form.cleaned_data.get('api_file')
             auth_header = form.cleaned_data.get('auth_header')
             
+            git_url = form.cleaned_data.get('git_url')
+            
             scan_options = {
                 'bola': form.cleaned_data.get('scan_bola'),
                 'auth': form.cleaned_data.get('scan_broken_auth'),
@@ -444,6 +466,11 @@ def scan_view(request):
                 'ratelimit': form.cleaned_data.get('scan_ratelimit'),
                 'jwt': form.cleaned_data.get('scan_jwt'),
                 'debug': form.cleaned_data.get('scan_debug'),
+                'sast_shadow_api': form.cleaned_data.get('scan_sast_shadow_api'),
+                'sast_secrets': form.cleaned_data.get('scan_sast_secrets'),
+                'sast_sqli': form.cleaned_data.get('scan_sast_sqli'),
+                'sast_cors': form.cleaned_data.get('scan_sast_cors'),
+                'sast_ratelimit': form.cleaned_data.get('scan_sast_ratelimit'),
             }
 
             auth_headers = {}
@@ -451,6 +478,19 @@ def scan_view(request):
                 if ':' in auth_header: k, v = auth_header.split(':', 1); auth_headers[k.strip()] = v.strip()
                 else: auth_headers['Authorization'] = auth_header
             
+            # --- HANDLE SAST SCAN ---
+            if git_url:
+                new_report = ScanReport.objects.create(
+                    user=request.user,
+                    target_url=f"SAST: {git_url}",
+                    scan_date=timezone.now(),
+                    status="Running",
+                    result_json={"scan_log": ["Initializing SAST engine..."]}
+                )
+                user_scan_pool.submit(run_scan_in_background, new_report.id, None, None, auth_headers, scan_options, is_sast=True, git_url=git_url)
+                return redirect('scan_progress', report_id=new_report.id)
+
+            # --- HANDLE DAST SCAN ---
             spec_content, scan_target_display, base_url = None, None, None
             if api_file:
                 spec_content = api_file.read().decode('utf-8')
@@ -467,9 +507,9 @@ def scan_view(request):
                     target_url=scan_target_display,
                     scan_date=timezone.now(),
                     status="Running",
-                    result_json={"scan_log": ["Initializing..."]}
+                    result_json={"scan_log": ["Initializing DAST engine..."]}
                 )
-                user_scan_pool.submit(run_scan_in_background, new_report.id, spec_content, base_url, auth_headers, scan_options)
+                user_scan_pool.submit(run_scan_in_background, new_report.id, spec_content, base_url, auth_headers, scan_options, is_sast=False, git_url=None)
                 return redirect('scan_progress', report_id=new_report.id)
             else:
                 messages.error(request, "Scan failed: Invalid input.")
@@ -548,6 +588,17 @@ def delete_report_view(request, report_id):
     return redirect('scan_history')
 
 @login_required
+def bulk_delete_reports_view(request):
+    if request.method == 'POST':
+        # Get list of report IDs from the form submission
+        report_ids = request.POST.getlist('report_ids')
+        if report_ids:
+            # Delete those that belong to the user
+            ScanReport.objects.filter(id__in=report_ids, user=request.user).delete()
+            messages.success(request, f"Successfully deleted {len(report_ids)} reports.")
+    return redirect('scan_history')
+
+@login_required
 def download_report_pdf(request, report_id):
     report = get_object_or_404(ScanReport, pk=report_id, user=request.user)
     vulns = report.result_json.get('vulnerabilities', [])
@@ -588,4 +639,53 @@ def download_report_pdf(request, report_id):
 
     response = HttpResponse(pdf.output(dest='S').encode('latin-1'), content_type='application/pdf')
     response['Content-Disposition'] = f'attachment; filename="Report_{report_id}.pdf"'
+    return response
+
+@login_required
+def download_sarif(request, report_id):
+    report = get_object_or_404(ScanReport, id=report_id, user=request.user)
+    try:
+        report_data = json.loads(report.result_json) if isinstance(report.result_json, str) else report.result_json
+    except:
+        report_data = {"vulnerabilities": []}
+
+    sarif = {
+        "version": "2.1.0",
+        "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+        "runs": [{
+            "tool": {
+                "driver": {
+                    "name": "API Sentinel Enterprise",
+                    "informationUri": "https://github.com/",
+                    "rules": []
+                }
+            },
+            "results": []
+        }]
+    }
+
+    rules_dict = {}
+    for vuln in report_data.get("vulnerabilities", []):
+        rule_id = vuln.get("owasp", "API-00").split(" ")[0].replace(":", "-")
+        if rule_id not in rules_dict:
+            sarif["runs"][0]["tool"]["driver"]["rules"].append({
+                "id": rule_id,
+                "name": vuln.get("name"),
+                "shortDescription": {"text": vuln.get("name")}
+            })
+            rules_dict[rule_id] = True
+
+        severity = "warning"
+        if vuln.get("severity") in ["High", "Critical"]: severity = "error"
+        elif vuln.get("severity") == "Low": severity = "note"
+
+        sarif["runs"][0]["results"].append({
+            "ruleId": rule_id,
+            "level": severity,
+            "message": {"text": vuln.get("description", "")},
+            "locations": [{"physicalLocation": {"artifactLocation": {"uri": report.target_url or "Target"}}}]
+        })
+
+    response = HttpResponse(json.dumps(sarif, indent=2), content_type='application/json')
+    response['Content-Disposition'] = f'attachment; filename="API_Sentinel_SARIF_{report.id}.sarif"'
     return response
