@@ -3,98 +3,95 @@
 {% block title %}New Scan - API Sentinel{% endblock %}
 
 {% block content %}
-<div class="header">
-    <h1>Start a New Scan</h1>
-    <p>Configure and launch an API security vulnerability scan.</p>
-</div>
-
-<div class="card">
-    {% if messages %}
-    <div class="messages">
-        {% for message in messages %}
-            <div class="alert alert-{{ message.tags }}" role="alert" style="margin-bottom: 20px; padding: 12px; background: rgba(229, 79, 79, 0.1); border: 1px solid var(--accent-danger); color: var(--accent-danger); border-radius: 4px; font-weight: 500;">
-                {{ message }}
+<div class="dashboard-layout" style="grid-template-columns: 1fr; max-width: 900px; margin: 0 auto;">
+    <div class="card">
+        <div class="card-header-title" style="font-size: 1.1rem; color: var(--accent-cyan); margin-bottom: 24px;"><i class="fas fa-crosshairs"></i> THREAT HUNT CONFIGURATION</div>
+        
+        {% if messages %}
+        <div class="messages" style="margin-bottom: 24px;">
+            {% for message in messages %}
+                <div class="alert alert-{{ message.tags }}" role="alert" style="padding: 12px; background: rgba(255, 68, 68, 0.1); border: 1px solid var(--accent-danger); color: var(--accent-danger); border-radius: 2px; font-weight: 500; font-size: 13px;">
+                    <i class="fas fa-exclamation-triangle"></i> {{ message }}
+                </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        
+        <form method="post" enctype="multipart/form-data">
+            {% csrf_token %}
+            
+            <div class="card-header-title" style="margin-bottom: 12px;">TARGET IDENTIFICATION</div>
+            <div style="border: 1px solid var(--card-border); padding: 20px; border-radius: 2px; margin-bottom: 24px;">
+                <div style="margin-bottom: 20px;">
+                    <label style="color: var(--accent-cyan);"><i class="fas fa-globe"></i> {{ form.target_url.label }}</label>
+                    {{ form.target_url }}
+                </div>
+                <div style="text-align: center; color: var(--text-muted); font-size: 11px; letter-spacing: 2px; margin: 16px 0;">&mdash; OR UPLOAD SCHEMA &mdash;</div>
+                <div style="margin-bottom: 20px;">
+                    <label style="color: var(--accent-cyan);"><i class="fas fa-file-code"></i> {{ form.api_file.label }}</label>
+                    {{ form.api_file }}
+                </div>
+                <hr style="border: 0; border-top: 1px solid #1f242d; margin: 20px 0;">
+                <div style="margin-bottom: 10px;">
+                    <label style="color: var(--accent-orange);"><i class="fab fa-git-alt"></i> {{ form.git_url.label }} (SAST Target)</label>
+                    {{ form.git_url }}
+                </div>
             </div>
-        {% endfor %}
+
+            <div class="card-header-title" style="margin-bottom: 12px;">AUTHORIZATION CONTEXT</div>
+            <div style="border: 1px solid var(--card-border); padding: 20px; border-radius: 2px; margin-bottom: 24px;">
+                <label><i class="fas fa-key"></i> {{ form.auth_header.label }}</label>
+                {{ form.auth_header }}
+            </div>
+
+            <div class="card-header-title" style="margin-bottom: 12px;">DETECTION MODULES</div>
+            <div style="border: 1px solid var(--card-border); padding: 20px; border-radius: 2px; margin-bottom: 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                <div style="background: rgba(255,255,255,0.02); padding: 12px 16px; border-radius: 2px; border: 1px solid #1f242d; display: flex; align-items: center;">
+                    {{ form.scan_broken_auth }} <span style="margin-left: 10px; color: var(--text-main); font-size: 12px; font-weight: 500;">{{ form.scan_broken_auth.label }}</span>
+                </div>
+                <div style="background: rgba(255,255,255,0.02); padding: 12px 16px; border-radius: 2px; border: 1px solid #1f242d; display: flex; align-items: center;">
+                    {{ form.scan_bola }} <span style="margin-left: 10px; color: var(--text-main); font-size: 12px; font-weight: 500;">{{ form.scan_bola.label }}</span>
+                </div>
+                <div style="background: rgba(255,255,255,0.02); padding: 12px 16px; border-radius: 2px; border: 1px solid #1f242d; display: flex; align-items: center;">
+                    {{ form.scan_injection }} <span style="margin-left: 10px; color: var(--text-main); font-size: 12px; font-weight: 500;">{{ form.scan_injection.label }}</span>
+                </div>
+                <div style="background: rgba(255,255,255,0.02); padding: 12px 16px; border-radius: 2px; border: 1px solid #1f242d; display: flex; align-items: center;">
+                    {{ form.scan_ratelimit }} <span style="margin-left: 10px; color: var(--text-main); font-size: 12px; font-weight: 500;">{{ form.scan_ratelimit.label }}</span>
+                </div>
+                <div style="background: rgba(255,255,255,0.02); padding: 12px 16px; border-radius: 2px; border: 1px solid #1f242d; display: flex; align-items: center;">
+                    {{ form.scan_jwt }} <span style="margin-left: 10px; color: var(--text-main); font-size: 12px; font-weight: 500;">{{ form.scan_jwt.label }}</span>
+                </div>
+                <div style="background: rgba(255,255,255,0.02); padding: 12px 16px; border-radius: 2px; border: 1px solid #1f242d; display: flex; align-items: center;">
+                    {{ form.scan_debug }} <span style="margin-left: 10px; color: var(--text-main); font-size: 12px; font-weight: 500;">{{ form.scan_debug.label }}</span>
+                </div>
+                
+                <div style="grid-column: span 2;">
+                    <hr style="border: 0; border-top: 1px solid #1f242d; margin: 10px 0;">
+                    <div style="font-size: 11px; text-transform: uppercase; color: var(--accent-orange); font-weight: 700; margin-bottom: 12px; letter-spacing: 1px;">Static Analysis Modules</div>
+                </div>
+
+                <div style="background: rgba(255,149,0,0.05); padding: 12px 16px; border-radius: 2px; border: 1px solid rgba(255,149,0,0.2); display: flex; align-items: center;">
+                    {{ form.scan_sast_shadow_api }} <span style="margin-left: 10px; color: var(--text-main); font-size: 12px; font-weight: 500;">{{ form.scan_sast_shadow_api.label }}</span>
+                </div>
+                <div style="background: rgba(255,149,0,0.05); padding: 12px 16px; border-radius: 2px; border: 1px solid rgba(255,149,0,0.2); display: flex; align-items: center;">
+                    {{ form.scan_sast_secrets }} <span style="margin-left: 10px; color: var(--text-main); font-size: 12px; font-weight: 500;">{{ form.scan_sast_secrets.label }}</span>
+                </div>
+                <div style="background: rgba(255,149,0,0.05); padding: 12px 16px; border-radius: 2px; border: 1px solid rgba(255,149,0,0.2); display: flex; align-items: center;">
+                    {{ form.scan_sast_sqli }} <span style="margin-left: 10px; color: var(--text-main); font-size: 12px; font-weight: 500;">{{ form.scan_sast_sqli.label }}</span>
+                </div>
+                <div style="background: rgba(255,149,0,0.05); padding: 12px 16px; border-radius: 2px; border: 1px solid rgba(255,149,0,0.2); display: flex; align-items: center;">
+                    {{ form.scan_sast_cors }} <span style="margin-left: 10px; color: var(--text-main); font-size: 12px; font-weight: 500;">{{ form.scan_sast_cors.label }}</span>
+                </div>
+                <div style="background: rgba(255,149,0,0.05); padding: 12px 16px; border-radius: 2px; border: 1px solid rgba(255,149,0,0.2); display: flex; align-items: center;">
+                    {{ form.scan_sast_ratelimit }} <span style="margin-left: 10px; color: var(--text-main); font-size: 12px; font-weight: 500;">{{ form.scan_sast_ratelimit.label }}</span>
+                </div>
+            </div>
+
+            <button type="submit" class="btn-execute" style="width: 100%; margin-top: 10px; font-size: 14px;">
+                <i class="fas fa-satellite-dish" style="margin-right: 8px;"></i> INITIATE THREAT HUNT
+            </button>
+        </form>
     </div>
-    {% endif %}
-    
-    <form method="post" enctype="multipart/form-data">
-        {% csrf_token %}
-        
-        <!-- Targets -->
-        <h3 style="color: var(--text-main); font-size: 1.1rem; margin-bottom: 15px; font-weight: 500;">Dynamic Analysis (DAST)</h3>
-        <div style="margin-bottom: 20px;">
-            <label>{{ form.target_url.label }}</label>
-            {{ form.target_url }}
-        </div>
-        <p style="text-align: center; font-weight: 500; margin: 10px 0; color: var(--text-muted);">OR</p>
-        <div style="margin-bottom: 20px;">
-            <label>{{ form.api_file.label }}</label>
-            {{ form.api_file }}
-        </div>
-        
-        <hr style="margin: 30px 0; border: none; border-top: 1px solid var(--card-border);">
-        <h3 style="color: var(--text-main); font-size: 1.1rem; margin-bottom: 15px; font-weight: 500;">Static Analysis (SAST)</h3>
-        <div style="margin-bottom: 20px;">
-            <label>{{ form.git_url.label }}</label>
-            {{ form.git_url }}
-        </div>
-        
-        <hr style="margin: 30px 0; border: none; border-top: 1px solid var(--card-border);">
-        
-        <!-- Auth -->
-        <div style="margin-bottom: 20px;">
-            <label>{{ form.auth_header.label }}</label>
-            {{ form.auth_header }}
-        </div>
-
-        <hr style="margin: 30px 0; border: none; border-top: 1px solid var(--card-border);">
-
-        <!-- Advanced Config -->
-        <h3 style="color: var(--text-main); font-size: 1.1rem; margin-bottom: 15px; font-weight: 500;">Scan Configuration</h3>
-        
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-            <div style="background: #14161A; padding: 15px; border-radius: 4px; border: 1px solid var(--card-border); display: flex; align-items: center;">
-                {{ form.scan_broken_auth }} <span style="margin-left: 10px; color: var(--text-main); font-size: 13px;">{{ form.scan_broken_auth.label }}</span>
-            </div>
-            <div style="background: #14161A; padding: 15px; border-radius: 4px; border: 1px solid var(--card-border); display: flex; align-items: center;">
-                {{ form.scan_bola }} <span style="margin-left: 10px; color: var(--text-main); font-size: 13px;">{{ form.scan_bola.label }}</span>
-            </div>
-            <div style="background: #14161A; padding: 15px; border-radius: 4px; border: 1px solid var(--card-border); display: flex; align-items: center;">
-                {{ form.scan_injection }} <span style="margin-left: 10px; color: var(--text-main); font-size: 13px;">{{ form.scan_injection.label }}</span>
-            </div>
-            <div style="background: #14161A; padding: 15px; border-radius: 4px; border: 1px solid var(--card-border); display: flex; align-items: center;">
-                {{ form.scan_ratelimit }} <span style="margin-left: 10px; color: var(--text-main); font-size: 13px;">{{ form.scan_ratelimit.label }}</span>
-            </div>
-            <!-- NEW OPTIONS -->
-            <div style="background: #14161A; padding: 15px; border-radius: 4px; border: 1px solid var(--card-border); display: flex; align-items: center;">
-                {{ form.scan_jwt }} <span style="margin-left: 10px; color: var(--text-main); font-size: 13px;">{{ form.scan_jwt.label }}</span>
-            </div>
-            <div style="background: #14161A; padding: 15px; border-radius: 4px; border: 1px solid var(--card-border); display: flex; align-items: center;">
-                {{ form.scan_debug }} <span style="margin-left: 10px; color: var(--text-main); font-size: 13px;">{{ form.scan_debug.label }}</span>
-            </div>
-            <!-- SAST OPTIONS -->
-            <div style="background: #14161A; padding: 15px; border-radius: 4px; border: 1px solid var(--card-border); display: flex; align-items: center;">
-                {{ form.scan_sast_shadow_api }} <span style="margin-left: 10px; color: var(--text-main); font-size: 13px;">{{ form.scan_sast_shadow_api.label }}</span>
-            </div>
-            <div style="background: #14161A; padding: 15px; border-radius: 4px; border: 1px solid var(--card-border); display: flex; align-items: center;">
-                {{ form.scan_sast_secrets }} <span style="margin-left: 10px; color: var(--text-main); font-size: 13px;">{{ form.scan_sast_secrets.label }}</span>
-            </div>
-            <div style="background: #14161A; padding: 15px; border-radius: 4px; border: 1px solid var(--card-border); display: flex; align-items: center;">
-                {{ form.scan_sast_sqli }} <span style="margin-left: 10px; color: var(--text-main); font-size: 13px;">{{ form.scan_sast_sqli.label }}</span>
-            </div>
-            <div style="background: #14161A; padding: 15px; border-radius: 4px; border: 1px solid var(--card-border); display: flex; align-items: center;">
-                {{ form.scan_sast_cors }} <span style="margin-left: 10px; color: var(--text-main); font-size: 13px;">{{ form.scan_sast_cors.label }}</span>
-            </div>
-            <div style="background: #14161A; padding: 15px; border-radius: 4px; border: 1px solid var(--card-border); display: flex; align-items: center;">
-                {{ form.scan_sast_ratelimit }} <span style="margin-left: 10px; color: var(--text-main); font-size: 13px;">{{ form.scan_sast_ratelimit.label }}</span>
-            </div>
-        </div>
-
-        <br>
-        <button type="submit" class="btn btn-primary" style="width: 100%; padding: 12px; margin-top: 10px;">Start Comprehensive Scan</button>
-    </form>
 </div>
 
 <div class="findings-card" style="margin-top: 2rem;">

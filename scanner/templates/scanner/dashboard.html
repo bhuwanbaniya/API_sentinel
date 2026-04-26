@@ -22,68 +22,89 @@
 {% endif %}
 <!-- --- END OF NEW BANNER --- -->
 
-<div class="header">
-    <h1>Security Analytics</h1>
-    <div class="badge severity-{{ overall_risk|lower }}">Risk: {{ overall_risk }}</div>
-</div>
-
-<!-- Stats -->
-<div class="metrics-container">
-    <div class="metric-box">
-        <span class="metric-value">{{ total_vulnerabilities }}</span>
-        <span class="metric-label">Total Vulnerabilities</span>
-    </div>
-    <div class="metric-box">
-        <span class="metric-value">{{ total_endpoints }}</span>
-        <span class="metric-label">Endpoints Scanned</span>
-    </div>
-    <div class="metric-box">
-        <span class="metric-value" style="color: {% if overall_risk == 'High' or overall_risk == 'Critical' %}#E54F4F{% elif overall_risk == 'Medium' %}#F0943A{% else %}#40A8A8{% endif %};">{{ risk_score }}/10</span>
-        <span class="metric-label">Risk Score</span>
-    </div>
-</div>
-
-<!-- Charts -->
-<div class="dashboard-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 25px;">
-    <div class="chart-card">
-        <h2>Vulnerability Trend (Last 7 Days)</h2>
-        <div class="chart-container" style="height: 250px;"><canvas id="trendChart"></canvas></div>
-    </div>
-    <div class="chart-card">
-        <h2>Severity Distribution</h2>
-        <div class="chart-container" style="height: 250px;"><canvas id="severityChart"></canvas></div>
-    </div>
-</div>
-
-<!-- Findings & Recent Scans -->
-<div class="findings-card" style="margin-bottom: 25px;">
-    <h2>Critical Security Findings</h2>
-    <table class="findings-table">
-        <thead><tr><th>Finding</th><th>Severity</th></tr></thead>
-        <tbody>
-            {% for f in critical_findings %}
-            <tr><td>{{ f.name }} at <strong>{{ f.target|truncatechars:40 }}</strong></td><td><span class="badge severity-{{ f.severity|lower }}">{{ f.severity }}</span></td></tr>
-            {% empty %}
-            <tr><td colspan="2" style="text-align: center; color: var(--text-muted);">No high-risk findings.</td></tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
-
-<div class="findings-card">
-    <h2>Recent Scan Reports</h2>
-    {% for report in reports %}
-        <div class="report-summary" style="padding: 15px 0; border-bottom: 1px solid var(--card-border);">
-            <strong style="color: var(--text-main);">Target: {{ report.target_url|truncatechars:60 }}</strong>
-            <p style="margin: 0.5rem 0 0 0; font-size: 13px; color: var(--text-muted);">
-                {{ report.scan_date|date:"Y-m-d H:i" }} | 
-                Status: <span style="font-weight: 500; color: {% if report.status == 'Success' %}#40A8A8{% else %}#E54F4F{% endif %};">{{ report.status }}</span>
-                 | Vulnerabilities: {{ report.result_json.vulnerabilities|length|default:0 }}
-            </p>
+<div class="dashboard-layout">
+    <!-- MAIN COLUMN -->
+    <div class="main-column">
+        <!-- METRICS ROW -->
+        <div class="metrics-row">
+            <div class="metric-box integrity">
+                <div class="metric-title">Risk Score</div>
+                <div class="metric-val cyan">{{ risk_score }}/10</div>
+                <div class="metric-sub cyan"><i class="fas fa-shield-alt"></i> Security Posture</div>
+            </div>
+            <div class="metric-box nodes">
+                <div class="metric-title">Endpoints Scanned</div>
+                <div class="metric-val cyan">{{ total_endpoints }}</div>
+                <div class="metric-sub muted">Target Surface</div>
+            </div>
+            <div class="metric-box threat">
+                <div class="metric-title">Vulnerabilities</div>
+                <div class="metric-val orange">{{ total_vulnerabilities }}</div>
+                <div class="metric-sub orange">Pending Review</div>
+            </div>
+            <div class="metric-box throughput">
+                <div class="metric-title">Overall Risk</div>
+                <div class="metric-val {% if overall_risk == 'High' or overall_risk == 'Critical' %}orange{% else %}cyan{% endif %}">{{ overall_risk }}</div>
+                <div class="metric-sub muted">Threat Level</div>
+            </div>
         </div>
-    {% empty %}
-        <p style="text-align: center; color: var(--text-muted); padding: 15px;">No scans performed yet.</p>
-    {% endfor %}
+
+        <div class="throughput-section">
+            <div class="dashboard-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+                <div class="throughput-card">
+                    <div class="card-header-title">Vulnerability Trend (Last 7 Days)</div>
+                    <div class="chart-container" style="height: 250px;"><canvas id="trendChart"></canvas></div>
+                </div>
+                <div class="throughput-card">
+                    <div class="card-header-title">Severity Distribution</div>
+                    <div class="chart-container" style="height: 250px;"><canvas id="severityChart"></canvas></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" style="margin-top: 24px;">
+            <div class="card-header-title">Recent Scan Reports</div>
+            {% for report in reports|slice:":5" %}
+                <div class="feed-item" style="padding: 16px 0; border-bottom: 1px solid var(--card-border);">
+                    <div class="feed-item-header">
+                        <span class="severity {% if report.status == 'Success' %}sev-low{% else %}sev-high{% endif %}">{{ report.status }}</span>
+                        <span class="feed-time">{{ report.scan_date|date:"Y-m-d H:i" }}</span>
+                    </div>
+                    <div class="feed-item-title">{{ report.target_url|truncatechars:60 }}</div>
+                    <div class="feed-item-desc" style="display: flex; justify-content: space-between; align-items: center;">
+                        <span>Vulnerabilities: {{ report.result_json.vulnerabilities|length|default:0 }}</span>
+                        <a href="{% url 'report_detail' report.id %}" class="btn-outline">View Report</a>
+                    </div>
+                </div>
+            {% empty %}
+                <div class="feed-item" style="text-align: center; color: var(--text-muted); padding: 16px 0;">No scans performed yet.</div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- RIGHT COLUMN -->
+    <div class="right-column">
+        <div class="feed-card">
+            <div class="feed-header">
+                <div class="feed-title">Critical Alerts</div>
+                <div class="feed-badge">{{ critical_findings|length }} ACTIVE</div>
+            </div>
+            <div class="feed-items">
+                {% for f in critical_findings %}
+                <div class="feed-item">
+                    <div class="feed-item-header">
+                        <span class="severity {% if f.severity == 'High' or f.severity == 'Critical' %}sev-high{% elif f.severity == 'Medium' %}sev-med{% else %}sev-low{% endif %}">{{ f.severity }}</span>
+                    </div>
+                    <div class="feed-item-title">{{ f.name }}</div>
+                    <div class="feed-item-desc">Target: {{ f.target|truncatechars:40 }}</div>
+                    <a href="#" class="btn-investigate">Investigate</a>
+                </div>
+                {% empty %}
+                <div class="feed-item" style="text-align: center; color: var(--text-muted);">No critical alerts.</div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
 </div>
 
 <!-- Scripts -->

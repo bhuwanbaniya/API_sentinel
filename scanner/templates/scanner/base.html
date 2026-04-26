@@ -21,16 +21,19 @@
         <aside class="sidebar">
             <div class="brand">
                 <i class="fas fa-shield-halved"></i> API Sentinel
+                <div class="brand-sub">SecOps Platform</div>
+            </div>
+
+            <div class="sidebar-btn-container">
+                <a href="{% url 'new_scan' %}" class="btn-execute">
+                    <i class="fas fa-crosshairs" style="margin-right: 8px;"></i> Threat Hunt
+                </a>
             </div>
 
             <!-- Navigation Links -->
             <nav class="nav-menu">
                 <a href="{% url 'dashboard' %}" class="nav-item {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}">
                     <i class="fas fa-chart-line"></i> Dashboard
-                </a>
-                
-                <a href="{% url 'new_scan' %}" class="nav-item {% if request.resolver_match.url_name == 'new_scan' %}active{% endif %}">
-                    <i class="fas fa-search"></i> New Scan
                 </a>
                 
                 <a href="{% url 'scan_history' %}" class="nav-item {% if request.resolver_match.url_name == 'scan_history' %}active{% endif %}">
@@ -73,18 +76,42 @@
 
         <!-- MAIN CONTENT AREA -->
         <main class="main-content {% if request.resolver_match.url_name == 'login' or request.resolver_match.url_name == 'register' or request.resolver_match.url_name == 'verify_2fa' %}no-sidebar{% endif %}">
-            <!-- Messages (Success/Error) -->
-            {% if messages %}
-                {% for message in messages %}
-                    <div class="card" style="padding: 15px; border-left: 5px solid var(--accent); background: rgba(0, 103, 206, 0.1);">
-                        {{ message }}
+            {% if request.resolver_match.url_name != 'login' and request.resolver_match.url_name != 'register' and request.resolver_match.url_name != 'verify_2fa' %}
+            <header class="top-nav">
+                <div class="top-nav-left">
+                    <div class="nav-title">API Sentinel</div>
+                    <div class="search-bar">
+                        <i class="fas fa-search"></i>
+                        <input type="text" placeholder="Search logs, alerts, endpoints...">
                     </div>
-                {% endfor %}
+                </div>
+                <div class="top-nav-icons">
+                    <div class="top-nav-links">
+                        <a href="{% url 'dashboard' %}" class="{% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}">Overview</a>
+                        <a href="#">Topology</a>
+                        <a href="#">Vulnerabilities</a>
+                    </div>
+                    <i class="fas fa-bell"></i>
+                    <i class="fas fa-cog"></i>
+                    {% if user.is_staff %}<div class="admin-badge"><i class="fas fa-shield-alt"></i> ADMIN</div>{% endif %}
+                </div>
+            </header>
             {% endif %}
 
-            <!-- Page Content -->
-            {% block content %}
-            {% endblock %}
+            <div class="page-content">
+                <!-- Messages (Success/Error) -->
+                {% if messages %}
+                    {% for message in messages %}
+                        <div class="card" style="padding: 15px; border-left: 5px solid var(--accent); background: rgba(0, 103, 206, 0.1);">
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                {% endif %}
+
+                <!-- Page Content -->
+                {% block content %}
+                {% endblock %}
+            </div>
         </main>
 
     </div>

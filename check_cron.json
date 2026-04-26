@@ -1,0 +1,51 @@
+[
+  {
+    "id": 197,
+    "target_url": "https://petstore.swagger.io/v2/swagger.json",
+    "is_scheduled": true,
+    "cron_expression": "4 * * * *",
+    "scan_date": "2026-03-25 10:27:09.832229+00:00"
+  },
+  {
+    "id": 205,
+    "target_url": "https://petstore.swagger.io/v2/swagger.json",
+    "is_scheduled": true,
+    "cron_expression": "2 * * * *",
+    "scan_date": "2026-03-25 10:31:10.032772+00:00"
+  },
+  {
+    "id": 274,
+    "target_url": "https://petstore.swagger.io/v2/swagger.json",
+    "is_scheduled": true,
+    "cron_expression": "1 * * * *",
+    "scan_date": "2026-04-02 07:02:01.761010+00:00"
+  },
+  {
+    "id": 278,
+    "target_url": "http://127.0.0.1:8001/openapi.json",
+    "is_scheduled": true,
+    "cron_expression": "1 * * * *",
+    "scan_date": "2026-04-02 10:19:06.555171+00:00"
+  },
+  {
+    "id": 292,
+    "target_url": "http://localhost:3000/rest/products/search?q=",
+    "is_scheduled": true,
+    "cron_expression": "2 * * * *",
+    "scan_date": "2026-04-03 02:58:46.349274+00:00"
+  },
+  {
+    "id": 301,
+    "target_url": "https://petstore.swagger.io/v2/swagger.json",
+    "is_scheduled": true,
+    "cron_expression": "2 * * * *",
+    "scan_date": "2026-04-06 11:09:59.366138+00:00"
+  },
+  {
+    "id": 307,
+    "target_url": "https://reqres.in/api",
+    "is_scheduled": true,
+    "cron_expression": "1 * * * *",
+    "scan_date": "2026-04-06 11:46:21.315434+00:00"
+  }
+]

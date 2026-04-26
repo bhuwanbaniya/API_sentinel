@@ -28,21 +28,29 @@ class SASTScanner:
             r"router\.(get|post|put|delete|patch)\(\s*['\"]([^'\"]+)['\"]",
             r"@app\.route\(\s*['\"]([^'\"]+)['\"]",
             r"path\(\s*['\"]([^'\"]+)['\"]",
-            r"url\(\s*r['\"]([^'\"]+)['\"]"
+            r"url\(\s*r['\"]([^'\"]+)['\"]",
+            r"@(Get|Post|Put|Delete|Patch)Mapping\(\s*(?:path\s*=\s*)?['\"]([^'\"]+)['\"]",
+            r"@router\.(get|post|put|delete|patch)\(\s*['\"]([^'\"]+)['\"]"
         ]
         
         # 2. Exposed Secrets
         secret_patterns = {
             "AWS Access Key": r"AKIA[0-9A-Z]{16}",
-            "Generic Secret/Password": r"(?i)(password|secret|api_key|token)[\s]*[=:]\s*['\"]([^'\"]{8,})['\"]",
-            "Private Key": r"-----BEGIN (RSA|OPENSSH) PRIVATE KEY-----"
+            "Generic Secret/Password": r"(?i)(password|secret|api_key|token|client_secret)[\s]*[=:]\s*['\"]([^'\"]{8,})['\"]",
+            "Private Key": r"-----BEGIN (RSA|OPENSSH) PRIVATE KEY-----",
+            "GitHub PAT": r"ghp_[0-9a-zA-Z]{36}",
+            "Slack Token": r"xox[baprs]-[0-9]{12}-[0-9]{12}-[a-zA-Z0-9]{24}",
+            "Stripe API Key": r"sk_live_[0-9a-zA-Z]{24}",
+            "GCP API Key": r"AIza[0-9A-Za-z-_]{35}"
         }
         
         # 3. SQL Injection (Raw Queries without parameters)
         # Matches cursor.execute("SELECT * FROM x WHERE id=" + id) or f"SELECT * FROM x WHERE id={id}"
         sqli_patterns = [
             r"cursor\.execute\s*\(\s*(f['\"].*?\{.*?\}|['\"].*?%.*?['\"]\s*%|.*?\+.*?)",
-            r"db\.query\s*\(\s*(f['\"].*?\{.*?\}|['\"].*?%.*?['\"]\s*%|.*?\+.*?)"
+            r"db\.query\s*\(\s*(f['\"].*?\{.*?\}|['\"].*?%.*?['\"]\s*%|.*?\+.*?)",
+            r"sequelize\.query\s*\(\s*['\"`].*?\$\{.*?\}",
+            r"ORM\.raw\s*\(\s*['\"`].*?\+.*?"
         ]
 
         # 4. Insecure CORS
@@ -50,6 +58,14 @@ class SASTScanner:
             r"cors\(\{\s*origin\s*:\s*['\"]\*(?:['\"]|\s*\})",
             r"CORS_ORIGIN_ALLOW_ALL\s*=\s*True",
             r"CORS\(.*origins.*\*.*\)"
+        ]
+        
+        # 5. Command Injection
+        cmd_patterns = [
+            r"os\.system\s*\(\s*(f['\"].*?\{.*?\}|.*?\+.*?)",
+            r"subprocess\.(Popen|call|run|check_output)\s*\([^)]*shell\s*=\s*True[^)]*\)",
+            r"exec\s*\(\s*['\"`].*?(\+.*|\$\{.*?\})",
+            r"eval\s*\(" 
         ]
         
         has_rate_limiter = False
@@ -128,6 +144,19 @@ class SASTScanner:
                                                 "owasp": "API8:2023 Security Misconfiguration"
                                             })
                                             self.log(logger, f"     [!] SAST Found: Insecure CORS in {rel_path}:{line_num}")
+                                            
+                                # 5. Command Injection
+                                if self.scan_options.get('sast_cmdinj', True):
+                                    for pattern in cmd_patterns:
+                                        if re.search(pattern, line):
+                                            self.report["vulnerabilities"].append({
+                                                "name": "Static Command Injection",
+                                                "severity": "Critical",
+                                                "description": f"Found potentially unsafe execution of OS commands via {rel_path} on line {line_num}.\nCode Snippet: `{line.strip()}`\n[Violates PCI-DSS Req. 6.5.1]",
+                                                "cvss": 9.8,
+                                                "owasp": "API8:2023 Security Misconfiguration"
+                                            })
+                                            self.log(logger, f"     [!] SAST Found: Command Injection in {rel_path}:{line_num}")
                                 
                                 # Track Rate limiters
                                 if self.scan_options.get('sast_ratelimit') and not has_rate_limiter:
