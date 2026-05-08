@@ -1,0 +1,169 @@
+{% extends 'scanner/base.html' %}
+
+{% block title %}Topology Graph - API Sentinel{% endblock %}
+
+{% block content %}
+<div class="header" style="display: flex; justify-content: space-between; align-items: center;">
+    <div>
+        <h1>API Topology Mapping</h1>
+        <p style="color: var(--text-muted); font-size: 0.9rem;">Visualizing attack surface and endpoint hierarchy.</p>
+    </div>
+    
+    <!-- Target Selection Dropdown -->
+    <form method="GET" action="{% url 'topology' %}" style="display: flex; gap: 10px; align-items: center;">
+        <select name="report_id" class="target-select" onchange="this.form.submit()">
+            {% if not selected_report_id %}
+            <option value="" selected disabled>Select a Target...</option>
+            {% endif %}
+            {% for t in unique_targets %}
+                <option value="{{ t.id }}" {% if t.id == selected_report_id %}selected{% endif %}>{{ t.url }}</option>
+            {% endfor %}
+        </select>
+    </form>
+</div>
+
+<div class="card" style="padding: 0; overflow: hidden; position: relative;">
+    <!-- Legend -->
+    <div class="legend" style="position: absolute; top: 15px; left: 15px; z-index: 10; background: rgba(13, 17, 23, 0.8); padding: 10px 15px; border-radius: 8px; border: 1px solid var(--card-border); backdrop-filter: blur(5px);">
+        <h4 style="margin: 0 0 10px 0; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted);">Node Status</h4>
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px;">
+            <div style="width: 12px; height: 12px; border-radius: 50%; background: #00d2ff; box-shadow: 0 0 8px #00d2ff;"></div>
+            <span style="font-size: 0.8rem;">Root / Gateway</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px;">
+            <div style="width: 12px; height: 12px; border-radius: 50%; background: #40A8A8; box-shadow: 0 0 8px #40A8A8;"></div>
+            <span style="font-size: 0.8rem;">Safe Endpoint</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px;">
+            <div style="width: 12px; height: 12px; border-radius: 50%; background: #f85149; box-shadow: 0 0 12px #f85149;"></div>
+            <span style="font-size: 0.8rem;">Vulnerable Endpoint</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+            <div style="width: 12px; height: 12px; border-radius: 50%; background: transparent; border: 2px solid #6e7681;"></div>
+            <span style="font-size: 0.8rem;">Blocked / Unreachable</span>
+        </div>
+    </div>
+
+    <!-- Graph Container -->
+    <div id="mynetwork" style="width: 100%; height: 65vh; background: #0d1117; background-image: linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px); background-size: 30px 30px;"></div>
+    
+    {% if not nodes_json or nodes_json == '[]' %}
+    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: var(--text-muted);">
+        <i class="fas fa-network-wired fa-3x" style="margin-bottom: 15px; opacity: 0.5;"></i>
+        <h3>No Topology Data</h3>
+        <p>Run a successful scan against this target to generate the map.</p>
+    </div>
+    {% endif %}
+</div>
+
+<style>
+    .target-select {
+        background: var(--bg-hover);
+        color: var(--text-main);
+        border: 1px solid var(--card-border);
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-family: inherit;
+        font-size: 0.9rem;
+        outline: none;
+        cursor: pointer;
+    }
+    .target-select:focus {
+        border-color: var(--accent);
+    }
+    .vis-network {
+        outline: none;
+    }
+</style>
+
+<!-- Vis.js Library -->
+<script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+
+<script type="text/javascript">
+    document.addEventListener("DOMContentLoaded", function() {
+        var rawNodes = {{ nodes_json|safe }};
+        var rawEdges = {{ edges_json|safe }};
+        
+        if (!rawNodes || rawNodes.length === 0) return;
+
+        // Apply Cyberpunk Styling to Nodes based on Group
+        rawNodes.forEach(function(n) {
+            n.shape = 'dot';
+            n.font = { color: '#c9d1d9', face: 'Inter', strokeWidth: 0, size: 14 };
+            
+            if (n.group === 'root') {
+                n.size = 25;
+                n.color = {
+                    background: '#0d1117', border: '#00d2ff',
+                    highlight: { background: '#00d2ff', border: '#fff' }
+                };
+                n.borderWidth = 3;
+                n.shadow = { enabled: true, color: '#00d2ff', size: 15 };
+            } 
+            else if (n.group === 'vulnerable') {
+                n.size = 20;
+                n.color = {
+                    background: '#f85149', border: '#ff7b72',
+                    highlight: { background: '#ff7b72', border: '#fff' }
+                };
+                n.borderWidth = 2;
+                n.shadow = { enabled: true, color: '#f85149', size: 20 };
+                n.font.color = '#ff7b72';
+                n.font.bold = true;
+            }
+            else if (n.group === 'unreachable') {
+                n.size = 12;
+                n.color = {
+                    background: '#0d1117', border: '#6e7681',
+                    highlight: { background: '#6e7681', border: '#fff' }
+                };
+                n.borderWidth = 1;
+                n.font.color = '#8b949e'; // Faded text
+            }
+            else { // safe
+                n.size = 15;
+                n.color = {
+                    background: '#0d1117', border: '#40A8A8',
+                    highlight: { background: '#40A8A8', border: '#fff' }
+                };
+                n.borderWidth = 2;
+                n.shadow = { enabled: true, color: 'rgba(64,168,168,0.5)', size: 10 };
+            }
+        });
+
+        // Apply Styling to Edges
+        rawEdges.forEach(function(e) {
+            e.color = { color: 'rgba(139, 148, 158, 0.3)', highlight: '#58a6ff' };
+            e.width = 1.5;
+            e.smooth = { type: 'continuous' };
+        });
+
+        var nodes = new vis.DataSet(rawNodes);
+        var edges = new vis.DataSet(rawEdges);
+
+        var container = document.getElementById('mynetwork');
+        var data = { nodes: nodes, edges: edges };
+        var options = {
+            physics: {
+                barnesHut: {
+                    gravitationalConstant: -3000,
+                    centralGravity: 0.3,
+                    springLength: 95,
+                    springConstant: 0.04,
+                    damping: 0.09,
+                    avoidOverlap: 0.1
+                },
+                stabilization: { iterations: 150 }
+            },
+            interaction: {
+                hover: true,
+                tooltipDelay: 100,
+                zoomView: true,
+                dragView: true
+            }
+        };
+
+        var network = new vis.Network(container, data, options);
+    });
+</script>
+{% endblock %}
