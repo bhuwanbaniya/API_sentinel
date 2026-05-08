@@ -39,6 +39,10 @@
                 <a href="{% url 'scan_history' %}" class="nav-item {% if request.resolver_match.url_name == 'scan_history' %}active{% endif %}">
                     <i class="fas fa-list"></i> Scan History
                 </a>
+                
+                <a href="{% url 'threat_map' %}" class="nav-item {% if request.resolver_match.url_name == 'threat_map' %}active{% endif %}">
+                    <i class="fas fa-globe-americas"></i> Threat Map
+                </a>
 
                 <div style="border-top: 1px solid var(--card-border); margin: 10px 0;"></div>
 
@@ -80,19 +84,19 @@
             <header class="top-nav">
                 <div class="top-nav-left">
                     <div class="nav-title">API Sentinel</div>
-                    <div class="search-bar">
-                        <i class="fas fa-search"></i>
-                        <input type="text" placeholder="Search logs, alerts, endpoints...">
-                    </div>
+                    <form action="{% url 'scan_history' %}" method="GET" class="search-bar" style="display: flex; align-items: center; margin-bottom: 0;">
+                        <button type="submit" style="background: none; border: none; color: var(--text-muted); cursor: pointer;"><i class="fas fa-search"></i></button>
+                        <input type="text" name="q" placeholder="Search targets..." value="{{ request.GET.q }}" style="border: none; outline: none; background: transparent; color: var(--text-main); width: 100%;">
+                    </form>
                 </div>
                 <div class="top-nav-icons">
                     <div class="top-nav-links">
                         <a href="{% url 'dashboard' %}" class="{% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}">Overview</a>
-                        <a href="#">Topology</a>
-                        <a href="#">Vulnerabilities</a>
+                        <a href="{% url 'topology' %}" class="{% if request.resolver_match.url_name == 'topology' %}active{% endif %}">Topology</a>
+                        <a href="{% url 'scan_history' %}" class="{% if request.resolver_match.url_name == 'scan_history' %}active{% endif %}">Vulnerabilities</a>
                     </div>
-                    <i class="fas fa-bell"></i>
-                    <i class="fas fa-cog"></i>
+                    <i class="fas fa-bell" title="No new notifications"></i>
+                    <a href="{% url 'settings' %}" style="color: inherit; text-decoration: none;"><i class="fas fa-cog"></i></a>
                     {% if user.is_staff %}<div class="admin-badge"><i class="fas fa-shield-alt"></i> ADMIN</div>{% endif %}
                 </div>
             </header>

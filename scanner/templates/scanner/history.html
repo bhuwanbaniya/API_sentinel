@@ -26,7 +26,7 @@
             </tr>
         </thead>
         <tbody>
-            {% for report in all_reports %}
+            {% for report in page_obj %}
             <!-- SMART ROW LINKING -->
             <tr style="cursor: pointer;" 
                 onclick="window.location='{% if report.status == 'Running' %}{% url 'scan_progress' report.id %}{% else %}{% url 'report_detail' report.id %}{% endif %}';">
@@ -94,6 +94,24 @@
             {% endfor %}
         </tbody>
     </table>
+    
+    <!-- Pagination Controls -->
+    <div class="pagination" style="display: flex; justify-content: center; margin-top: 20px; gap: 10px;">
+        {% if page_obj.has_previous %}
+            <a href="?page=1{% if query %}&q={{ query }}{% endif %}" class="btn btn-outline" style="border: 1px solid var(--border-color); padding: 5px 10px; border-radius: 4px; color: var(--text-color); text-decoration: none;">&laquo; First</a>
+            <a href="?page={{ page_obj.previous_page_number }}{% if query %}&q={{ query }}{% endif %}" class="btn btn-outline" style="border: 1px solid var(--border-color); padding: 5px 10px; border-radius: 4px; color: var(--text-color); text-decoration: none;">Previous</a>
+        {% endif %}
+
+        <span class="current-page" style="padding: 5px 10px; color: var(--text-muted);">
+            Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+        </span>
+
+        {% if page_obj.has_next %}
+            <a href="?page={{ page_obj.next_page_number }}{% if query %}&q={{ query }}{% endif %}" class="btn btn-outline" style="border: 1px solid var(--border-color); padding: 5px 10px; border-radius: 4px; color: var(--text-color); text-decoration: none;">Next</a>
+            <a href="?page={{ page_obj.paginator.num_pages }}{% if query %}&q={{ query }}{% endif %}" class="btn btn-outline" style="border: 1px solid var(--border-color); padding: 5px 10px; border-radius: 4px; color: var(--text-color); text-decoration: none;">Last &raquo;</a>
+        {% endif %}
+    </div>
+    
     </form>
 </div>
 
