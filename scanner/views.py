@@ -8,6 +8,8 @@ from datetime import timedelta
 from django.http import HttpResponse, JsonResponse
 from django.core.mail import send_mail
 from django.conf import settings
+from django.urls import reverse
+from django.core.paginator import Paginator
 from .forms import APIScanForm, UserProfileForm
 from .models import ScanReport, UserProfile
 from .scan_engine import start_scan, fetch_swagger_from_url
@@ -419,6 +421,7 @@ def dashboard(request):
                 severity_counts[sev] += 1
                 if sev in ['High', 'Critical']:
                     vuln['target'] = report.target_url
+                    vuln['report_id'] = report.id
                     critical_findings.append(vuln)
 
     today = timezone.now().date()
@@ -557,8 +560,16 @@ def toggle_schedule_api(request, report_id):
 
 @login_required
 def history_view(request):
-    reports = ScanReport.objects.filter(user=request.user).order_by('-scan_date')
-    return render(request, 'scanner/history.html', {'all_reports': reports})
+    query = request.GET.get('q', '')
+    reports_qs = ScanReport.objects.filter(user=request.user).order_by('-scan_date')
+    
+    if query:
+        reports_qs = reports_qs.filter(target_url__icontains=query)
+        
+    paginator = Paginator(reports_qs, 10) # Show 10 reports per page
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+    return render(request, 'scanner/history.html', {'page_obj': page_obj, 'query': query})
 
 @login_required
 def report_detail_view(request, report_id):
@@ -689,3 +700,224 @@ def download_sarif(request, report_id):
     response = HttpResponse(json.dumps(sarif, indent=2), content_type='application/json')
     response['Content-Disposition'] = f'attachment; filename="API_Sentinel_SARIF_{report.id}.sarif"'
     return response
+
+import socket
+from django.core.cache import cache
+
+@login_required
+def threat_map_view(request):
+    reports = ScanReport.objects.filter(user=request.user, status='Success').order_by('-scan_date')
+    
+    targets = {}
+    for r in reports:
+        if not r.result_json: continue
+        
+        target = r.target_url
+        if target.startswith('File:') or target.startswith('SAST:'): continue
+        
+        # Parse domain to IP
+        domain = urlparse(target).netloc.split(':')[0]
+        if not domain: continue
+        
+        if domain not in targets:
+            targets[domain] = {
+                'url': target,
+                'ip': '',
+                'lat': None,
+                'lon': None,
+                'vuln_count': 0,
+                'max_severity': 'Low'
+            }
+            
+        vulns = r.result_json.get('vulnerabilities', [])
+        if len(vulns) > targets[domain]['vuln_count']:
+            targets[domain]['vuln_count'] = len(vulns)
+            
+            # Determine highest severity
+            severity_val = 0
+            for v in vulns:
+                s = str(v.get('severity', 'low')).lower()
+                if s == 'critical': val = 3
+                elif s == 'high': val = 2
+                elif s == 'medium': val = 1
+                else: val = 0
+                severity_val = max(severity_val, val)
+                
+            if severity_val == 3: targets[domain]['max_severity'] = 'Critical'
+            elif severity_val == 2: targets[domain]['max_severity'] = 'High'
+            elif severity_val == 1: targets[domain]['max_severity'] = 'Medium'
+            else: targets[domain]['max_severity'] = 'Low'
+
+    # Resolve IPs and Geo Location
+    map_data = []
+    for domain, data in targets.items():
+        ip = cache.get(f"ip_{domain}")
+        if not ip:
+            try:
+                ip = socket.gethostbyname(domain)
+                cache.set(f"ip_{domain}", ip, 86400) # Cache for 24h
+            except socket.gaierror:
+                continue
+                
+        data['ip'] = ip
+        
+        geo = cache.get(f"geo_{ip}")
+        if not geo:
+            try:
+                # Use a free GeoIP API
+                resp = requests.get(f"http://ip-api.com/json/{ip}", timeout=3).json()
+                if resp.get('status') == 'success':
+                    geo = {'lat': resp.get('lat'), 'lon': resp.get('lon')}
+                    cache.set(f"geo_{ip}", geo, 86400 * 30) # Cache 30 days
+            except Exception:
+                pass
+                
+        if geo:
+            import random
+            # Add a tiny random jitter (approx 10-20km) so targets on the same CDN (like Cloudflare) don't perfectly overlap
+            jitter_lat = random.uniform(-0.1, 0.1)
+            jitter_lon = random.uniform(-0.1, 0.1)
+            
+            data['lat'] = geo['lat'] + jitter_lat
+            data['lon'] = geo['lon'] + jitter_lon
+            map_data.append(data)
+
+    return render(request, 'scanner/threat_map.html', {'map_data_json': map_data})
+
+@login_required
+def topology_view(request):
+    reports = ScanReport.objects.filter(user=request.user, status='Success').order_by('-scan_date')
+    
+    unique_targets = []
+    seen = set()
+    for r in reports:
+        if r.target_url not in seen:
+            seen.add(r.target_url)
+            unique_targets.append({'id': r.id, 'url': r.target_url})
+            
+    selected_report_id = request.GET.get('report_id')
+    selected_report = None
+    
+    if selected_report_id:
+        selected_report = reports.filter(id=selected_report_id).first()
+    elif reports.exists():
+        selected_report = reports.first()
+        
+    nodes = []
+    edges = []
+    
+    if selected_report:
+        try:
+            res_json = selected_report.result_json
+            if isinstance(res_json, str):
+                res_json = json.loads(res_json)
+                
+            endpoints = res_json.get('endpoints', [])
+            vulns = res_json.get('vulnerabilities', [])
+            
+            for v in vulns:
+                desc = v.get('description', '')
+                if 'Endpoint ' in desc:
+                    parts = desc.split('Endpoint ')
+                    if len(parts) > 1:
+                        path_part = parts[1].split(' ')[0]
+                        if path_part.startswith('/'):
+                            endpoints.append(path_part)
+                        elif '/' in path_part:
+                            endpoints.append('/' + path_part.split('/', 1)[1])
+                            
+            from urllib.parse import urlparse
+            domain = urlparse(selected_report.target_url).netloc or selected_report.target_url
+            
+            node_map = {}
+            node_id_counter = 1
+            
+            node_map['/'] = 0
+            nodes.append({'id': 0, 'label': domain, 'group': 'root', 'title': 'Target Domain'})
+            
+            endpoints = list(set(endpoints))
+            
+            for ep in endpoints:
+                is_unreachable = "(Unreachable)" in ep
+                ep = ep.replace("(Unreachable)", "").strip()
+                if " " in ep:
+                    ep = ep.split(" ")[1]
+                    
+                if not ep.startswith('/'): ep = '/' + ep
+                parts = [p for p in ep.split('/') if p]
+                
+                current_path = ''
+                parent_id = 0
+                
+                for part in parts:
+                    current_path += '/' + part
+                    if current_path not in node_map:
+                        node_map[current_path] = node_id_counter
+                        is_vuln = False
+                        vuln_details = []
+                        for v in vulns:
+                            if current_path in v.get('description', '') or current_path in v.get('name', ''):
+                                is_vuln = True
+                                vuln_details.append(f"[{v.get('severity')}] {v.get('name')}")
+                        
+                        if is_vuln:
+                            group = 'vulnerable'
+                        elif is_unreachable:
+                            group = 'unreachable'
+                        else:
+                            group = 'safe'
+                            
+                        title = f"Path: {current_path}"
+                        if is_vuln: title += "\n" + "\n".join(vuln_details)
+                        if is_unreachable: title += "\n[Blocked by WAF / Unreachable]"
+                        
+                        nodes.append({'id': node_id_counter, 'label': f"/{part}", 'group': group, 'title': title})
+                        edges.append({'from': parent_id, 'to': node_id_counter})
+                        node_id_counter += 1
+                        
+                    parent_id = node_map[current_path]
+                    
+        except Exception as e:
+            print("Error parsing topology:", e)
+
+    context = {
+        'unique_targets': unique_targets,
+        'selected_report_id': int(selected_report.id) if selected_report else None,
+        'nodes_json': json.dumps(nodes),
+        'edges_json': json.dumps(edges),
+    }
+    return render(request, 'scanner/topology.html', context)
+
+from django.views.decorators.csrf import csrf_exempt
+from .models import OASTEvent
+import json
+
+@csrf_exempt
+def oast_catch_view(request, token):
+    """
+    Webhook listener for Out-Of-Band (OAST) security testing.
+    Catches SSRF and Blind Command Injections.
+    """
+    # Get IP Address
+    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    if x_forwarded_for:
+        ip = x_forwarded_for.split(',')[0]
+    else:
+        ip = request.META.get('REMOTE_ADDR')
+
+    # Get headers
+    headers = {k: v for k, v in request.META.items() if k.startswith('HTTP_')}
+    
+    # Get payload if any
+    payload = request.body.decode('utf-8', errors='ignore')
+
+    # Save to database
+    OASTEvent.objects.create(
+        token=token,
+        source_ip=ip,
+        headers=json.dumps(headers),
+        payload=payload
+    )
+
+    # Return a generic 200 OK so the attacker doesn't know what hit them
+    return HttpResponse("OK", status=200)

@@ -25,4 +25,7 @@ urlpatterns = [
     path('api/scan-status/<int:report_id>/', views.scan_status_api, name='scan_status_api'),
     path('scan/stop/<int:report_id>/', views.stop_scan_view, name='stop_scan'),
     path('history/toggle_schedule/<int:report_id>/', views.toggle_schedule_api, name='toggle_schedule'),
+    path('threat-map/', views.threat_map_view, name='threat_map'),
+    path('topology/', views.topology_view, name='topology'),
+    path('api/oast/catch/<str:token>/', views.oast_catch_view, name='oast_catch'),
 ]
