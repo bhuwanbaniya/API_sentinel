@@ -54,3 +54,14 @@ def save_user_profile(sender, instance, **kwargs):
         instance.userprofile.save()
     else:
         UserProfile.objects.create(user=instance)
+
+# --- 4. OAST Webhook Listener Model ---
+class OASTEvent(models.Model):
+    token = models.CharField(max_length=64, db_index=True)
+    timestamp = models.DateTimeField(default=timezone.now)
+    source_ip = models.CharField(max_length=64, null=True, blank=True)
+    headers = models.TextField(null=True, blank=True)
+    payload = models.TextField(null=True, blank=True)
+
+    def __str__(self):
+        return f"OAST Catch {self.token} from {self.source_ip}"
