@@ -67,11 +67,21 @@ class APIScanner:
 
     def parse_endpoints(self):
         if not self.api_spec: return
+        
+        base_path = self.api_spec.get('basePath', '')
+        if not base_path and 'servers' in self.api_spec and len(self.api_spec['servers']) > 0:
+            server_url = self.api_spec['servers'][0].get('url', '')
+            parsed = urlparse(server_url)
+            base_path = parsed.path
+            
+        base_path = base_path.rstrip('/')
+        
         paths = self.api_spec.get('paths', {})
         for path, methods in paths.items():
             for method in methods:
                 if method.lower() in ['get', 'post', 'put', 'delete', 'patch']:
-                    self.report["endpoints"].append(f"{method.upper()} {path}")
+                    full_path = f"{base_path}{path}"
+                    self.report["endpoints"].append(f"{method.upper()} {full_path}")
 
     def run_passive_scan(self):
         # Host-level checks should always run, even without API Spec
@@ -102,6 +112,69 @@ def _build_url(base_url, path_str):
     clean_path = path_str if path_str.startswith('/') else f"/{path_str}"
     return f"{clean_base}{clean_path}"
 
+def calibrate_baseline(base_url, auth_headers):
+    """
+    Mathematical Zero-False-Positive calibration. Requests a guaranteed non-existent URL
+    to map the firewall's exact 'garbage' signature.
+    """
+    try:
+        url = _build_url(base_url, f"/api/v1/sentinel_garbage_{uuid.uuid4().hex}")
+        res = requests.get(url, headers=auth_headers, timeout=3)
+        return {
+            "status": res.status_code,
+            "length": len(res.text),
+            "is_json": 'application/json' in res.headers.get('Content-Type', '').lower()
+        }
+    except:
+        return {"status": 404, "length": 0, "is_json": False}
+
+def attempt_waf_bypass(method, path, base_url, auth_headers, baseline):
+    """
+    Advanced WAF Evasion Engine. Uses Verb Tampering, Path Normalization Evasion,
+    and IP Spoofing to break through 401/403 blocks.
+    """
+    spoof_headers = auth_headers.copy() if auth_headers else {}
+    spoof_headers.update({
+        "X-Forwarded-For": "127.0.0.1",
+        "X-Real-IP": "127.0.0.1",
+        "X-Custom-IP-Authorization": "127.0.0.1",
+        "X-Original-URL": path,
+        "X-Rewrite-URL": path
+    })
+    
+    # Path Normalization Evasion
+    # If path is /api/admin -> /api/v1/../admin or //api/./admin
+    parts = [p for p in path.split('/') if p]
+    if len(parts) >= 2:
+        evasion_path = f"/{parts[0]}/v1/../{'/'.join(parts[1:])}"
+    else:
+        evasion_path = f"//{path.lstrip('/')}"
+        
+    evasion_url = _build_url(base_url, evasion_path)
+    
+    # Verb Tampering
+    verbs_to_try = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+    verbs_to_try.remove(method.upper())
+    
+    for verb in verbs_to_try:
+        try:
+            res = requests.request(verb, evasion_url, headers=spoof_headers, timeout=3)
+            
+            # Mathematical Differential Check for Bypass
+            if res.status_code in [200, 201, 202, 204]:
+                if res.status_code != baseline["status"] and abs(len(res.text) - baseline["length"]) > 50:
+                    # Confirmed bypass!
+                    return {
+                        "name": f"WAF Bypass & Auth Bypass ({verb})", 
+                        "severity": "Critical", 
+                        "description": f"Endpoint {path} was initially blocked (403/401). API Sentinel bypassed the WAF using Path Traversal Evasion ({evasion_path}), IP Spoofing, and Verb Tampering ({verb}).", 
+                        "cvss": 9.8, 
+                        "owasp": "API2:2023 Broken Authentication"
+                    }
+        except: pass
+        
+    return None
+
 def check_broken_authentication(method, path, base_url, logger=None):
     if 'login' in path or 'register' in path or '.well-known' in path or 'auth' in path: return None
     try:
@@ -109,7 +182,15 @@ def check_broken_authentication(method, path, base_url, logger=None):
         res = requests.request(method, url, timeout=5)
         # 401 Unauthorized, 403 Forbidden, 404/405 usually indicate it's not implemented or wrong method, not a bypass
         if res.status_code in [200, 201, 202, 204]: 
-            return {"name": "Broken Authentication", "severity": "High", "description": f"Endpoint {method.upper()} {path} permitted unauthenticated access (Status: {res.status_code}). [Violates PCI-DSS Req. 8]", "cvss": 8.8, "owasp": "API2:2023 Broken Authentication"}
+            # Require JSON response. If it's returning HTML, it's a SPA fallback/redirect, not an API leak.
+            content_type = res.headers.get('Content-Type', '').lower()
+            if 'application/json' not in content_type and len(res.text) > 0:
+                return None
+                
+            text_lower = res.text.lower()
+            pseudo_errors = ["unauthorized", "invalid token", "forbidden", "not logged in", "access denied", "missing token"]
+            if not any(err in text_lower for err in pseudo_errors):
+                return {"name": "Broken Authentication", "severity": "High", "description": f"Endpoint {method.upper()} {path} permitted unauthenticated access (Status: {res.status_code}). [Violates PCI-DSS Req. 8]", "cvss": 8.8, "owasp": "API2:2023 Broken Authentication"}
     except: pass
     return None
 
@@ -126,25 +207,44 @@ def check_bola_vulnerability(method, path, base_url, auth_headers):
     except: pass
     return None
 
-def check_injection(method, path, base_url, auth_headers):
+def check_injection(method, path, base_url, auth_headers, oast_url=None):
     if '.well-known' in path: return None
+    
+    from .payload_generator import PayloadGenerator
     payloads = {
-        "SQLi": ["' OR 1=1--", "admin'--", "1' OR '1'='1", "1; WAITFOR DELAY '0:0:5'--"],
-        "XSS": ["<script>alert(1)</script>", "\"><img src=x onerror=prompt(1)>"],
-        "CmdInj": ["; id", "| whoami", "`ping -c 1 127.0.0.1`"]
+        "SQLi": PayloadGenerator.get_sqli_payloads(),
+        "XSS": PayloadGenerator.get_xss_payloads(),
+        "CmdInj": PayloadGenerator.get_cmd_injection_payloads(),
+        "NoSQLi": PayloadGenerator.get_nosql_payloads()
     }
-    db_errors = ["sql ", "mysql", "syntax", "ora-", "postgresql", "unexpected token", "pg_query"]
+    
+    if oast_url:
+        payloads["CmdInj"].extend([f"curl {oast_url}", f"wget {oast_url}", f"ping -c 1 {oast_url}"])
+
+    db_errors = ["sql ", "mysql", "syntax", "ora-", "postgresql", "unexpected token", "pg_query", "mongo", "bson"]
     
     for inj_type, p_list in payloads.items():
         for p in p_list:
             try:
                 if method in ['post', 'put', 'patch']:
                     url = _build_url(base_url, path)
-                    json_payload = {"email": p, "password": p, "username": p, "id": p, "search": p, "q": p, "query": p}
-                    res = requests.request(method, url, json=json_payload, headers=auth_headers, timeout=5)
+                    
+                    if inj_type == "NoSQLi":
+                        # NoSQL injections usually target JSON bodies directly
+                        json_payload = {"email": p, "password": p, "username": p, "id": p}
+                    else:
+                        # Context-Aware Mutation: For ID fields, inject numeric-aware payloads
+                        int_payload = f"1 OR 1=1" if inj_type == "SQLi" else p
+                        json_payload = {"email": p, "password": p, "username": p, "id": int_payload, "account_id": int_payload, "search": p, "q": p, "query": p}
+                        
+                    res = requests.request(method, url, json=json_payload, headers=auth_headers, timeout=3)
                 else:
-                    url = _build_url(base_url, f"{generate_mock_param(path)}?q={p}&id={p}&search={p}")
-                    res = requests.request(method, url, headers=auth_headers, timeout=5)
+                    if inj_type == "NoSQLi":
+                        continue # Skip NoSQLi for GET requests as they are usually JSON body based
+                    # Context-Aware Mutation for GET queries
+                    int_payload = f"1 OR 1=1" if inj_type == "SQLi" else p
+                    url = _build_url(base_url, f"{generate_mock_param(path)}?q={p}&id={int_payload}&search={p}")
+                    res = requests.request(method, url, headers=auth_headers, timeout=3)
                     
                 text_lower = res.text.lower()
                 
@@ -154,17 +254,66 @@ def check_injection(method, path, base_url, auth_headers):
                     if res.status_code == 200 and 'token' in text_lower and 'error' not in text_lower:
                         return {"name": "SQL Injection (Auth Bypass)", "severity": "Critical", "description": f"Endpoint {path} bypassed auth / logic with payload '{p}'.", "cvss": 9.8, "owasp": "API8:2023 Security Misconfiguration"}
                         
+                elif inj_type == "NoSQLi":
+                    if res.status_code == 500 and any(err in text_lower for err in db_errors):
+                        return {"name": "NoSQL Injection", "severity": "Critical", "description": f"Endpoint {path} threw NoSQL errors with payload '{p}'.", "cvss": 9.8, "owasp": "API8:2023 Security Misconfiguration"}
+                    if res.status_code == 200 and ('token' in text_lower or len(res.content) > 1000): # Assuming massive data dump
+                        return {"name": "NoSQL Injection (Auth/Data Bypass)", "severity": "Critical", "description": f"Endpoint {path} bypassed logic with NoSQL payload '{p}'.", "cvss": 9.8, "owasp": "API8:2023 Security Misconfiguration"}
+                        
                 elif inj_type == "XSS":
-                    if res.status_code == 200 and p in res.text:
+                    if res.status_code == 200 and str(p) in res.text:
                         return {"name": "Reflected Cross-Site Scripting (XSS)", "severity": "Medium", "description": f"Endpoint {path} reflected unsafe script payload.", "cvss": 6.1, "owasp": "API8:2023 Security Misconfiguration"}
                         
                 elif inj_type == "CmdInj":
-                    if "uid=" in text_lower or "root:" in text_lower or ("127.0.0.1" in text_lower and "ping" not in p):
+                    if "uid=" in text_lower or "root:" in text_lower or ("127.0.0.1" in text_lower and "ping" not in str(p)):
                         return {"name": "OS Command Injection", "severity": "Critical", "description": f"Endpoint {path} executed system command '{p}'.", "cvss": 10.0, "owasp": "API8:2023 Security Misconfiguration"}
+            except requests.exceptions.ReadTimeout:
+                if inj_type in ["SQLi", "CmdInj", "NoSQLi"] and ("sleep" in str(p).lower() or "delay" in str(p).lower() or "ping" in str(p).lower()):
+                    return {"name": f"Time-based Blind {inj_type}", "severity": "Critical", "description": f"Endpoint {path} timed out (likely executed) after receiving payload '{p}'.", "cvss": 9.8, "owasp": "API8:2023 Security Misconfiguration"}
             except: pass
     return None
 
+def check_ssrf(method, path, base_url, auth_headers, oast_url=None):
+    """
+    Checks for Server-Side Request Forgery by feeding internal URLs into common parameter names.
+    """
+    from .payload_generator import PayloadGenerator
+    payloads = PayloadGenerator.get_ssrf_payloads()
+    if oast_url:
+        payloads.append(oast_url)
+    
+    # Common parameters that might be vulnerable to SSRF
+    ssrf_params = ["url", "uri", "endpoint", "path", "target", "domain", "webhook", "callback"]
+    
+    for p in payloads:
+        try:
+            if method in ['post', 'put', 'patch']:
+                url = _build_url(base_url, path)
+                json_payload = {param: p for param in ssrf_params}
+                res = requests.request(method, url, json=json_payload, headers=auth_headers, timeout=3)
+            else:
+                query_string = "&".join([f"{param}={p}" for param in ssrf_params])
+                url = _build_url(base_url, f"{generate_mock_param(path)}?{query_string}")
+                res = requests.request(method, url, headers=auth_headers, timeout=3)
+                
+            text_lower = res.text.lower()
+            
+            # If the response contains metadata patterns or default web server pages
+            if "ami-id" in text_lower or "instance-action" in text_lower or "compute.internal" in text_lower:
+                return {"name": "Server-Side Request Forgery (Cloud Metadata)", "severity": "Critical", "description": f"Endpoint {path} fetched cloud metadata using payload '{p}'. [Violates SSRF mitigations]", "cvss": 9.5, "owasp": "API10:2023 Unsafe Consumption of APIs"}
+            
+            # If we hit an internal network that was previously unreachable and we see unique signatures
+            if "localhost" not in base_url and ("ubuntu" in text_lower or "debian" in text_lower or "apache" in text_lower) and res.status_code == 200:
+                 return {"name": "Server-Side Request Forgery (Internal Access)", "severity": "High", "description": f"Endpoint {path} seems to have fetched an internal page using '{p}'.", "cvss": 8.0, "owasp": "API10:2023 Unsafe Consumption of APIs"}
+
+        except: pass
+    return None
+
 def check_rate_limit(method, path, base_url, auth_headers):
+    # Only check state-changing methods or authentication-related GET requests to reduce false positives
+    if method == 'get' and not any(kw in path.lower() for kw in ['login', 'auth', 'register', 'token']):
+        return None
+        
     try:
         url = _build_url(base_url, re.sub(r'\{.*?\}', '1', path))
         
@@ -218,6 +367,32 @@ def check_mass_assignment(method, path, base_url, auth_headers):
             res = requests.request(method, url, json=payload, headers=auth_headers, timeout=5)
             if res.status_code in [200, 201, 202] and ("admin" in res.text.lower() or "premium" in res.text.lower()):
                 return {"name": "Potential Mass Assignment", "severity": "Medium", "description": f"Endpoint {method.upper()} {path} accepted a privileged payload and reflected successful state change.", "cvss": 6.5, "owasp": "API3:2023 Broken Object Property Level Auth"}
+    except: pass
+    return None
+
+def check_hidden_parameters(method, path, base_url, auth_headers):
+    """
+    Fuzzes for hidden parameters like ?admin=true, ?debug=1 that could lead to BOLA or Mass Assignment.
+    """
+    if method != 'get': return None
+    hidden_params = ['admin=true', 'debug=1', 'test=1', 'role=admin', 'user_id=1', 'id=1']
+    try:
+        url_base = _build_url(base_url, generate_mock_param(path))
+        baseline_res = requests.get(url_base, headers=auth_headers, timeout=5)
+        baseline_len = len(baseline_res.text)
+        baseline_status = baseline_res.status_code
+
+        for param in hidden_params:
+            url_fuzz = f"{url_base}?{param}" if '?' not in url_base else f"{url_base}&{param}"
+            fuzz_res = requests.get(url_fuzz, headers=auth_headers, timeout=5)
+            
+            if fuzz_res.status_code == 200 and baseline_status != 200 and fuzz_res.status_code not in [404, 400]:
+                return {"name": "Hidden Parameter Discovered (Bypass)", "severity": "High", "description": f"Endpoint {path} reacted to hidden parameter '{param}', changing status from {baseline_status} to 200.", "cvss": 7.5, "owasp": "API3:2023 Broken Object Property Level Auth"}
+            
+            if fuzz_res.status_code == baseline_status == 200:
+                length_diff = abs(len(fuzz_res.text) - baseline_len)
+                if length_diff > 100: # Significant change in response payload
+                    return {"name": "Hidden Parameter Discovered (Mass Assignment / Data Exposure)", "severity": "Medium", "description": f"Endpoint {path} returned significantly different data when '{param}' was injected.", "cvss": 6.5, "owasp": "API3:2023 Broken Object Property Level Auth"}
     except: pass
     return None
 
@@ -277,7 +452,12 @@ def check_debug_endpoints(base_url):
                 
                 if is_login:
                     return {"name": "Exposed Login Portal", "severity": "Low", "description": f"Login page or Auth SPA accessible at {p}.", "cvss": 3.0, "owasp": "API9:2023 Improper Inventory Management"}
-                return {"name": "Exposed Sensitive Path", "severity": "Medium", "description": f"Path {p} is accessible.", "cvss": 5.8, "owasp": "API9:2023 Improper Inventory Management"}
+                
+                sensitive_keywords = ["admin dashboard", "configuration", "wp-admin", "django administration", "phpmyadmin", "swagger ui", "openapi"]
+                content_type = res.headers.get('Content-Type', '').lower()
+                
+                if any(kw in html_lower for kw in sensitive_keywords) or 'application/json' in content_type:
+                    return {"name": "Exposed Sensitive Path", "severity": "Medium", "description": f"Path {p} is accessible and contains sensitive data or API schema.", "cvss": 5.8, "owasp": "API9:2023 Improper Inventory Management"}
         except: pass
     return None
 
@@ -309,7 +489,7 @@ def check_cors_policy(base_url):
     except: pass
     return None
 
-def find_hidden_api_endpoints(base_url, logger=None):
+def find_hidden_api_endpoints(base_url, auth_headers=None, baseline=None, logger=None):
     found_vulns = []
     found_endpoints = []
     clean_base = base_url.rstrip('/')
@@ -358,12 +538,46 @@ def find_hidden_api_endpoints(base_url, logger=None):
     
     for p in to_fuzz:
         try:
-            res = requests.get(f"{clean_base}{p}", timeout=2)
-            if res.status_code in [200, 401, 403, 405] and 'application/json' in res.headers.get('Content-Type', ''):
+            res = requests.get(f"{clean_base}{p}", headers=auth_headers, timeout=2)
+            is_json = 'application/json' in res.headers.get('Content-Type', '').lower()
+            
+            # Reachable API
+            if res.status_code in [200, 201, 202, 204] and is_json:
                 if p in fuzz_paths: # It was found purely by fuzzing
                     found_vulns.append({"name": "Undocumented API Found", "severity": "Low", "description": f"Discovered reachable endpoint {p}.", "cvss": 3.0, "owasp": "API9:2023 Improper Inventory Management"})
                 found_endpoints.append(f"GET {p}")
                 found_endpoints.append(f"POST {p}")
+                
+            # Blocked / Unreachable API
+            elif res.status_code in [401, 403, 405]:
+                # Mathematical Differential Check
+                if baseline and res.status_code != baseline["status"] and abs(len(res.text) - baseline["length"]) > 50:
+                    # It's a real, distinct blocked endpoint!
+                    
+                    # 1. Attempt to Break In (Advanced WAF Bypass)
+                    bypass_vuln = attempt_waf_bypass('GET', p, base_url, auth_headers, baseline)
+                    if bypass_vuln:
+                        found_vulns.append(bypass_vuln)
+                        found_endpoints.append(f"GET {p}") # Map as normal (since we broke in)
+                    else:
+                        # 2. Failed to break in -> Map as Unreachable Grey Node
+                        found_endpoints.append(f"GET {p} (Unreachable)")
+                        
+                elif is_json:
+                    # Traditional fallback
+                    found_endpoints.append(f"GET {p} (Unreachable)")
+                    
+        except: pass
+        
+    # GraphQL Introspection Check
+    graphql_paths = [p for p in found_endpoints if 'graphql' in p.lower()]
+    for gp in graphql_paths:
+        try:
+            url = f"{clean_base}{gp.split(' ')[1]}"
+            introspection_query = {"query": "{ __schema { types { name fields { name } } } }"}
+            res = requests.post(url, json=introspection_query, timeout=4)
+            if res.status_code == 200 and 'data' in res.text and '__schema' in res.text:
+                found_vulns.append({"name": "GraphQL Introspection Enabled", "severity": "High", "description": f"Endpoint {gp.split(' ')[1]} allows unauthenticated schema introspection, leaking the entire database architecture. [Violates API9:2023]", "cvss": 7.3, "owasp": "API9:2023 Improper Inventory Management"})
         except: pass
         
     if found_endpoints:
@@ -386,6 +600,14 @@ def start_scan(spec_content, base_url, auth_headers, scan_options=None, logger=N
     
     passive_scanner = APIScanner(spec_content=spec_content, target_base_url=base_url)
     report = passive_scanner.run_passive_scan()
+    
+    oast_token = None
+    oast_url = None
+    if report_id:
+        oast_token = f"TKN-{report_id}-{uuid.uuid4().hex[:8]}"
+        # Assuming local dev environment for now; in prod this would be your ngrok/public domain
+        oast_url = f"http://127.0.0.1:8000/api/oast/catch/{oast_token}/"
+        log(f"[*] Generated OAST Token: {oast_token}")
     
     if report['status'] == 'Failed':
         # Don't return! Just log and continue with empty endpoints
@@ -421,7 +643,11 @@ def start_scan(spec_content, base_url, auth_headers, scan_options=None, logger=N
             report["vulnerabilities"].append(vuln)
             log(f"     [!] Found: Exposed Infrastructure Ports")
             
-        vulns, new_endpoints = find_hidden_api_endpoints(base_url, logger)
+        # Calibrate Zero-False-Positive Baseline
+        baseline = calibrate_baseline(base_url, auth_headers)
+        log(f"[*] Firewall Baseline Captured: {baseline['status']} ({baseline['length']} bytes)")
+            
+        vulns, new_endpoints = find_hidden_api_endpoints(base_url, auth_headers, baseline, logger)
         for v in vulns:
             if v not in report["vulnerabilities"]:
                 report["vulnerabilities"].append(v)
@@ -466,7 +692,7 @@ def start_scan(spec_content, base_url, auth_headers, scan_options=None, logger=N
                         log(f"     [!] Found: BOLA")
 
                 if scan_options.get('injection'):
-                    vuln = check_injection(method, path, base_url, auth_headers)
+                    vuln = check_injection(method, path, base_url, auth_headers, oast_url)
                     if vuln and vuln not in report["vulnerabilities"]:
                         report["vulnerabilities"].append(vuln)
                         log(f"     [!] Found: SQL Injection")
@@ -477,10 +703,20 @@ def start_scan(spec_content, base_url, auth_headers, scan_options=None, logger=N
                         report["vulnerabilities"].append(vuln)
                         log(f"     [!] Found: Rate Limit Issue")
 
+                vuln = check_ssrf(method, path, base_url, auth_headers, oast_url)
+                if vuln and vuln not in report["vulnerabilities"]:
+                    report["vulnerabilities"].append(vuln)
+                    log(f"     [!] Found: SSRF")
+
                 vuln = check_sensitive_data(method, path, base_url, auth_headers)
                 if vuln and vuln not in report["vulnerabilities"]:
                     report["vulnerabilities"].append(vuln)
                     log(f"     [!] Found: Data Leak")
+                    
+                vuln = check_hidden_parameters(method, path, base_url, auth_headers)
+                if vuln and vuln not in report["vulnerabilities"]:
+                    report["vulnerabilities"].append(vuln)
+                    log(f"     [!] Found: Hidden Parameter")
 
                 vuln = check_mass_assignment(method, path, base_url, auth_headers)
                 if vuln and vuln not in report["vulnerabilities"]:
@@ -500,5 +736,24 @@ def start_scan(spec_content, base_url, auth_headers, scan_options=None, logger=N
     if len(report["vulnerabilities"]) > 0:
         report["status"] = "Success"
 
+    # --- OAST Verification ---
+    if oast_token:
+        log("[*] Checking OAST Listener for asynchronous callbacks...")
+        time.sleep(2) # Give slow servers a second to callback
+        from .models import OASTEvent
+        events = OASTEvent.objects.filter(token=oast_token)
+        if events.exists():
+            for e in events:
+                log(f"     [!!!] BLIND VULNERABILITY CONFIRMED: Received ping from {e.source_ip}")
+            report["vulnerabilities"].append({
+                "name": "Out-of-Band (Blind) Vulnerability Confirmed",
+                "severity": "Critical",
+                "description": f"The API Sentinel OAST listener caught an out-of-band request matching token {oast_token}. This confirms a Blind SSRF or Blind Command Injection.",
+                "cvss": 10.0,
+                "owasp": "API10:2023 Unsafe Consumption of APIs"
+            })
+            report["status"] = "Success"
+
+    report["endpoints"] = list(set(endpoints))
     log("[+] Scan Completed Successfully.")
     return report
