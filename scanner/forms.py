@@ -52,6 +52,34 @@ class APIScanForm(forms.Form):
         label='Authorization Header (e.g., "Authorization: Bearer your_token")',
         widget=forms.TextInput(attrs={'size': '50', 'placeholder': 'Authorization: Bearer ey...'})
     )
+    
+    # --- AUTOMATED AUTH CRAWLER ---
+    auth_login_url = forms.URLField(
+        required=False,
+        label='Login Endpoint URL (For Automated Token Extraction)',
+        widget=forms.URLInput(attrs={'size': '50', 'placeholder': 'http://127.0.0.1:8000/api/login'})
+    )
+    auth_type = forms.ChoiceField(
+        required=False,
+        choices=[('jwt', 'JSON Web Token (JWT)'), ('cookie', 'Session Cookie'), ('oauth2', 'OAuth2 Client Credentials')],
+        label='Authentication Flow Type'
+    )
+    admin_username = forms.CharField(
+        required=False, label='High Privilege Username / Client ID',
+        widget=forms.TextInput(attrs={'placeholder': 'admin'})
+    )
+    admin_password = forms.CharField(
+        required=False, label='High Privilege Password / Secret',
+        widget=forms.PasswordInput(attrs={'placeholder': '********', 'render_value': True})
+    )
+    user_username = forms.CharField(
+        required=False, label='Low Privilege Username (For BFLA Testing)',
+        widget=forms.TextInput(attrs={'placeholder': 'hacker'})
+    )
+    user_password = forms.CharField(
+        required=False, label='Low Privilege Password',
+        widget=forms.PasswordInput(attrs={'placeholder': '********', 'render_value': True})
+    )
 
     # --- DAST MODULES ---
     scan_broken_auth = forms.BooleanField(required=False, initial=True, label="Check for Broken Authentication")
