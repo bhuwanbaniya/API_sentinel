@@ -524,14 +524,43 @@ def find_hidden_api_endpoints(base_url, auth_headers=None, baseline=None, logger
             except: pass
     except: pass
 
-    # 3. Enhanced API Fuzzing Dictionary
+    # 3. Enhanced API Fuzzing Dictionary (Massive Enterprise Wordlist)
     fuzz_paths = [
-        '/api', '/api/v1', '/api/v2', '/v1', '/graphql',
-        '/api/users', '/api/v1/users', '/api/private/users', '/api/dev/users',
-        '/users/me', '/auth/login', '/api/admin', '/api/products', '/api/health',
-        '/.well-known/openid-configuration',
-        '/realms/master/.well-known/openid-configuration',
-        '/realms/ingtech/.well-known/openid-configuration'
+        # Base Paths
+        '/api', '/api/v1', '/api/v2', '/api/v3', '/v1', '/v2', '/v3', '/graphql', '/graph', '/api/graphql',
+        
+        # Authentication & Authorization
+        '/auth', '/auth/login', '/auth/register', '/auth/token', '/auth/refresh', '/auth/logout',
+        '/api/auth/login', '/api/auth/register', '/api/v1/auth', '/login', '/register', '/oauth/token',
+        '/oauth2/token', '/sso/login', '/jwt/token', '/jwt/refresh', '/api/token',
+        
+        # OpenID & Configs
+        '/.well-known/openid-configuration', '/.well-known/jwks.json', '/realms/master/.well-known/openid-configuration',
+        '/swagger.json', '/api-docs', '/v2/api-docs', '/v3/api-docs', '/openapi.json', '/docs', '/api/docs',
+        '/swagger-ui.html', '/config', '/api/config', '/env', '/.env', '/actuator/env',
+        
+        # Admin & Dev
+        '/admin', '/api/admin', '/admin/login', '/admin/users', '/admin/dashboard', '/api/v1/admin',
+        '/dev', '/api/dev', '/beta', '/test', '/api/test', '/debug', '/api/debug',
+        '/actuator', '/actuator/health', '/health', '/healthcheck', '/ping', '/metrics', '/actuator/metrics',
+        
+        # Users & Accounts
+        '/users', '/api/users', '/api/v1/users', '/api/v2/users', '/user', '/api/user',
+        '/users/me', '/api/users/me', '/profile', '/api/profile', '/account', '/api/account',
+        '/customers', '/api/customers', '/employees', '/api/employees', '/members', '/staff',
+        
+        # E-commerce / General Objects
+        '/products', '/api/products', '/orders', '/api/orders', '/cart', '/api/cart',
+        '/payments', '/api/payments', '/invoices', '/transactions', '/billing',
+        '/items', '/files', '/uploads', '/images', '/documents', '/data',
+        
+        # Education / specific (since target is mysecondteacher)
+        '/students', '/api/students', '/teachers', '/api/teachers', '/courses', '/api/courses',
+        '/classes', '/lessons', '/exams', '/grades', '/marks', '/assignments', '/school',
+        
+        # Common bypass variations
+        '/api/private/users', '/api/internal/users', '/internal/api', '/private/api',
+        '/v1.1', '/v1.2', '/api/v1.1', '/api/v1.0'
     ]
     
     to_fuzz = list(set([p.split(" ")[1] if " " in p else p for p in found_endpoints] + fuzz_paths))
@@ -585,6 +614,102 @@ def find_hidden_api_endpoints(base_url, auth_headers=None, baseline=None, logger
         
     return found_vulns, list(set(found_endpoints))
 
+def perform_automated_login(login_url, username, password, auth_type='jwt', logger=None):
+    """
+    Enterprise Multi-Auth Extractor.
+    Automatically logs into a target and extracts JWTs, OAuth2 tokens, or Session Cookies.
+    """
+    def log(msg):
+        if logger: logger(msg)
+        
+    log(f"[*] Auth Crawler: Attempting automated login against {login_url}...")
+    
+    # IP Spoofing to bypass basic login rate limiters
+    headers = {
+        "X-Forwarded-For": "127.0.0.1",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {"username": username, "password": password}
+    if auth_type == 'oauth2':
+        payload = {"client_id": username, "client_secret": password, "grant_type": "client_credentials"}
+        headers["Content-Type"] = "application/x-www-form-urlencoded"
+        
+    try:
+        if auth_type == 'oauth2':
+            res = requests.post(login_url, data=payload, headers=headers, timeout=5)
+        else:
+            res = requests.post(login_url, json=payload, headers=headers, timeout=5)
+            
+        if res.status_code not in [200, 201]:
+            log(f"[-] Auth Crawler: Login failed with status {res.status_code}")
+            return None
+            
+        # 1. Cookie Extraction
+        if auth_type == 'cookie':
+            if res.cookies:
+                cookie_str = "; ".join([f"{k}={v}" for k, v in res.cookies.items()])
+                log("[+] Auth Crawler: Successfully extracted Session Cookie.")
+                return {"Cookie": cookie_str}
+            else:
+                log("[-] Auth Crawler: No cookies returned by server.")
+                return None
+                
+        # 2. JWT / Token Extraction
+        data = res.json()
+        token = data.get("access_token") or data.get("token") or data.get("jwt")
+        if token:
+            log("[+] Auth Crawler: Successfully extracted JWT/Access Token.")
+            return {"Authorization": f"Bearer {token}"}
+        else:
+            log("[-] Auth Crawler: Could not find token in JSON response.")
+            return None
+            
+    except Exception as e:
+        log(f"[-] Auth Crawler Error: {e}")
+        return None
+
+def check_credential_stuffing(login_url, logger=None):
+    """
+    Fires rapid requests with bad credentials to see if the server lacks rate limiting on the auth endpoint.
+    """
+    def log(msg):
+        if logger: logger(msg)
+        
+    log(f"[*] Auth Crawler: Running Credential Stuffing & Brute Force check...")
+    import concurrent.futures
+    
+    def send_bad_login(i):
+        try:
+            requests.post(login_url, json={"username": f"admin{i}", "password": "password123"}, timeout=2)
+            return True
+        except:
+            return False
+            
+    success_count = 0
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        results = list(executor.map(send_bad_login, range(20)))
+        success_count = sum(results)
+        
+    # Send one more after the barrage to see if we are blocked
+    try:
+        res = requests.post(login_url, json={"username": "test", "password": "123"}, timeout=2)
+        if res.status_code == 429:
+            log("[+] Auth Crawler: Rate Limit detected on login. Safe.")
+            return None
+        elif res.status_code in [401, 403]:
+            # Still returning auth errors = No rate limit
+            log("[!] Auth Crawler: Server failed to block Brute Force attack.")
+            return {
+                "name": "Credential Stuffing / Brute Force Vulnerability", 
+                "severity": "High", 
+                "description": f"Login endpoint {login_url} lacks rate limiting. API Sentinel successfully fired 20 rapid login requests without being blocked (Status: {res.status_code}). [Violates API4:2023]", 
+                "cvss": 7.5, 
+                "owasp": "API4:2023 Unrestricted Resource Consumption"
+            }
+    except: pass
+    return None
+
 # ==============================================================================
 # MASTER SCAN FUNCTION (UPDATED)
 # ==============================================================================
@@ -610,13 +735,39 @@ def start_scan(spec_content, base_url, auth_headers, scan_options=None, logger=N
         log(f"[*] Generated OAST Token: {oast_token}")
     
     if report['status'] == 'Failed':
-        # Don't return! Just log and continue with empty endpoints
         log("[!] Warning: Could not parse OpenAPI spec. Proceeding with Host-Level checks.")
         endpoints = []
     else:
         endpoints = report.get("endpoints", [])
         log(f"[+] Successfully parsed {len(endpoints)} endpoints.")
-    
+        
+    # ==========================================================================
+    # ENTERPRISE AUTH CRAWLER LOGIC
+    # ==========================================================================
+    if scan_options and scan_options.get('auth_login_url'):
+        login_url = scan_options['auth_login_url']
+        auth_type = scan_options.get('auth_type', 'jwt')
+        
+        # 1. Credential Stuffing Check
+        stuffing_vuln = check_credential_stuffing(login_url, logger)
+        if stuffing_vuln:
+            report.setdefault("vulnerabilities", []).append(stuffing_vuln)
+            
+        # 2. Automated Admin Login
+        admin_user = scan_options.get('admin_username')
+        admin_pass = scan_options.get('admin_password')
+        if admin_user and admin_pass:
+            extracted_headers = perform_automated_login(login_url, admin_user, admin_pass, auth_type, logger)
+            if extracted_headers:
+                auth_headers = extracted_headers
+            else:
+                log("[-] Warning: Failed to extract Admin auth token. Proceeding without authentication.")
+                
+        # Determine if we are doing Dual-Role (BFLA) Testing
+        is_bfla_test = bool(scan_options.get('user_username') and scan_options.get('user_password'))
+        if is_bfla_test:
+            log("[*] Privilege Escalation Matrix Enabled: Will test Admin endpoints with Standard User credentials.")
+            
     log("\n[*] Starting Active Scan Phase...")
 
     # --- Run Global Checks ---
@@ -677,6 +828,19 @@ def start_scan(spec_content, base_url, auth_headers, scan_options=None, logger=N
                 method, path = endpoint_string.split(" ", 1)
                 method = method.lower()
                 
+                # --- AUTO-REFRESH KEEP-ALIVE ---
+                if scan_options and scan_options.get('auth_login_url') and admin_user:
+                    try:
+                        ping_url = f"{base_url.rstrip('/')}{path if path.startswith('/') else '/' + path}"
+                        ping_res = requests.request(method, ping_url, headers=auth_headers, timeout=2)
+                        if ping_res.status_code == 401:
+                            log("[!] Auth Crawler: 401 Unauthorized detected! Token expired. Refreshing...")
+                            refreshed = perform_automated_login(login_url, admin_user, admin_pass, auth_type, logger)
+                            if refreshed:
+                                auth_headers = refreshed
+                                log("[+] Auth Crawler: Token refreshed successfully. Resuming attack...")
+                    except: pass
+                
                 log(f"  -> Scanning {method.upper()} {path} ...")
 
                 if scan_options.get('auth'):
@@ -727,6 +891,32 @@ def start_scan(spec_content, base_url, auth_headers, scan_options=None, logger=N
                 if vuln and vuln not in report["vulnerabilities"]:
                     report["vulnerabilities"].append(vuln)
                     log(f"     [!] Found: Unsafe HTTP Method")
+                    
+                # --- PRIVILEGE ESCALATION MATRIX (BFLA) ---
+                if is_bfla_test and ('admin' in path.lower() or 'system' in path.lower() or 'private' in path.lower() or method in ['post', 'put', 'delete']):
+                    try:
+                        low_priv_user = scan_options.get('user_username')
+                        low_priv_pass = scan_options.get('user_password')
+                        low_priv_headers = perform_automated_login(login_url, low_priv_user, low_priv_pass, auth_type)
+                        
+                        if low_priv_headers:
+                            bfla_url = f"{base_url.rstrip('/')}{path if path.startswith('/') else '/' + path}"
+                            bfla_res = requests.request(method, bfla_url, headers=low_priv_headers, timeout=3)
+                            
+                            # If Low-Privilege user successfully accesses an admin endpoint
+                            if bfla_res.status_code in [200, 201, 202, 204]:
+                                bfla_vuln = {
+                                    "name": "Broken Function Level Authorization (BFLA)", 
+                                    "severity": "Critical", 
+                                    "description": f"Privilege Escalation Matrix detected BFLA. Low privilege user '{low_priv_user}' successfully executed {method.upper()} on High privilege endpoint {path} (Status: {bfla_res.status_code}). [Violates API5:2023]", 
+                                    "cvss": 9.0, 
+                                    "owasp": "API5:2023 Broken Function Level Authorization"
+                                }
+                                if bfla_vuln not in report["vulnerabilities"]:
+                                    report["vulnerabilities"].append(bfla_vuln)
+                                    log(f"     [!] CRITICAL: BFLA Privilege Escalation Detected on {path}!")
+                    except Exception as e:
+                        pass
 
             except Exception as e:
                 log(f"     [!] Error scanning {path}: {e}")
