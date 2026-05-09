@@ -474,6 +474,14 @@ def scan_view(request):
                 'sast_sqli': form.cleaned_data.get('scan_sast_sqli'),
                 'sast_cors': form.cleaned_data.get('scan_sast_cors'),
                 'sast_ratelimit': form.cleaned_data.get('scan_sast_ratelimit'),
+                
+                # Automated Auth Crawler Fields
+                'auth_login_url': form.cleaned_data.get('auth_login_url'),
+                'auth_type': form.cleaned_data.get('auth_type'),
+                'admin_username': form.cleaned_data.get('admin_username'),
+                'admin_password': form.cleaned_data.get('admin_password'),
+                'user_username': form.cleaned_data.get('user_username'),
+                'user_password': form.cleaned_data.get('user_password'),
             }
 
             auth_headers = {}
