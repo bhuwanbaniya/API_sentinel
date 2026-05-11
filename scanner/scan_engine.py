@@ -7,7 +7,19 @@ import json
 import socket
 import uuid
 import random
+import threading
+import concurrent.futures
 from urllib.parse import urlparse, urljoin
+
+# Global Thread-Safe TCP Connection Pool
+GLOBAL_SESSION = requests.Session()
+# Disable SSL warnings for generic scanning
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+GLOBAL_SESSION.verify = False 
+
+# Global Lock to prevent Database Race Conditions during massive concurrency
+scan_lock = threading.Lock()
 
 def generate_mock_param(path_str):
     """
@@ -59,7 +71,7 @@ class APIScanner:
     def check_security_headers(self):
         if not self.target_base_url: return
         try:
-            headers = requests.get(self.target_base_url, timeout=5).headers
+            headers = GLOBAL_SESSION.get(self.target_base_url, timeout=5).headers
             missing = [h for h in ["X-Content-Type-Options", "X-Frame-Options", "Content-Security-Policy"] if h not in headers]
             if missing:
                 self.report["vulnerabilities"].append({"name": "Missing Security Headers", "severity": "Low", "description": f"Missing headers: {', '.join(missing)}", "cvss": 3.1, "owasp": "API8:2023 Security Misconfiguration"})
@@ -100,7 +112,7 @@ class APIScanner:
 def fetch_swagger_from_url(url):
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(url, headers=headers, timeout=10)
+        response = GLOBAL_SESSION.get(url, headers=headers, timeout=10)
         response.raise_for_status()
         return response.text
     except Exception as e:
@@ -119,7 +131,7 @@ def calibrate_baseline(base_url, auth_headers):
     """
     try:
         url = _build_url(base_url, f"/api/v1/sentinel_garbage_{uuid.uuid4().hex}")
-        res = requests.get(url, headers=auth_headers, timeout=3)
+        res = GLOBAL_SESSION.get(url, headers=auth_headers, timeout=3)
         return {
             "status": res.status_code,
             "length": len(res.text),
@@ -158,7 +170,7 @@ def attempt_waf_bypass(method, path, base_url, auth_headers, baseline):
     
     for verb in verbs_to_try:
         try:
-            res = requests.request(verb, evasion_url, headers=spoof_headers, timeout=3)
+            res = GLOBAL_SESSION.request(verb, evasion_url, headers=spoof_headers, timeout=3)
             
             # Mathematical Differential Check for Bypass
             if res.status_code in [200, 201, 202, 204]:
@@ -179,7 +191,7 @@ def check_broken_authentication(method, path, base_url, logger=None):
     if 'login' in path or 'register' in path or '.well-known' in path or 'auth' in path: return None
     try:
         url = _build_url(base_url, re.sub(r'\{.*?\}', '1', path))
-        res = requests.request(method, url, timeout=5)
+        res = GLOBAL_SESSION.request(method, url, timeout=5)
         # 401 Unauthorized, 403 Forbidden, 404/405 usually indicate it's not implemented or wrong method, not a bypass
         if res.status_code in [200, 201, 202, 204]: 
             # Require JSON response. If it's returning HTML, it's a SPA fallback/redirect, not an API leak.
@@ -199,8 +211,8 @@ def check_bola_vulnerability(method, path, base_url, auth_headers):
     try:
         url1 = _build_url(base_url, generate_mock_param(path))
         url2 = _build_url(base_url, generate_mock_param(path))
-        res1 = requests.request(method, url1, headers=auth_headers, timeout=5)
-        res2 = requests.request(method, url2, headers=auth_headers, timeout=5)
+        res1 = GLOBAL_SESSION.request(method, url1, headers=auth_headers, timeout=5)
+        res2 = GLOBAL_SESSION.request(method, url2, headers=auth_headers, timeout=5)
         
         if res1.status_code == 200 and res2.status_code == 200 and res1.content != res2.content:
             return {"name": "BOLA / IDOR", "severity": "High", "description": f"Endpoint {path} allows accessing multiple separate object IDs successfully under the same token. [Violates GDPR Art. 32]", "cvss": 8.5, "owasp": "API1:2023 Broken Object Level Authorization"}
@@ -237,27 +249,28 @@ def check_injection(method, path, base_url, auth_headers, oast_url=None):
                         int_payload = f"1 OR 1=1" if inj_type == "SQLi" else p
                         json_payload = {"email": p, "password": p, "username": p, "id": int_payload, "account_id": int_payload, "search": p, "q": p, "query": p}
                         
-                    res = requests.request(method, url, json=json_payload, headers=auth_headers, timeout=3)
+                    res = GLOBAL_SESSION.request(method, url, json=json_payload, headers=auth_headers, timeout=3)
                 else:
                     if inj_type == "NoSQLi":
                         continue # Skip NoSQLi for GET requests as they are usually JSON body based
                     # Context-Aware Mutation for GET queries
                     int_payload = f"1 OR 1=1" if inj_type == "SQLi" else p
                     url = _build_url(base_url, f"{generate_mock_param(path)}?q={p}&id={int_payload}&search={p}")
-                    res = requests.request(method, url, headers=auth_headers, timeout=3)
+                    res = GLOBAL_SESSION.request(method, url, headers=auth_headers, timeout=3)
                     
                 text_lower = res.text.lower()
                 
                 if inj_type == "SQLi":
                     if res.status_code == 500 and any(err in text_lower for err in db_errors):
                         return {"name": "SQL Injection (Error-Based)", "severity": "Critical", "description": f"Endpoint {path} triggered DB errors with payload '{p}'. [Violates PCI-DSS Req. 6.5.1]", "cvss": 9.8, "owasp": "API8:2023 Security Misconfiguration"}
-                    if res.status_code == 200 and 'token' in text_lower and 'error' not in text_lower:
+                    # Strict Auth Bypass detection to prevent False Positives on normal JS files
+                    if res.status_code == 200 and ('login' in path.lower() or 'auth' in path.lower()) and ('"token"' in text_lower or 'eyJ' in res.text) and 'error' not in text_lower:
                         return {"name": "SQL Injection (Auth Bypass)", "severity": "Critical", "description": f"Endpoint {path} bypassed auth / logic with payload '{p}'.", "cvss": 9.8, "owasp": "API8:2023 Security Misconfiguration"}
                         
                 elif inj_type == "NoSQLi":
                     if res.status_code == 500 and any(err in text_lower for err in db_errors):
                         return {"name": "NoSQL Injection", "severity": "Critical", "description": f"Endpoint {path} threw NoSQL errors with payload '{p}'.", "cvss": 9.8, "owasp": "API8:2023 Security Misconfiguration"}
-                    if res.status_code == 200 and ('token' in text_lower or len(res.content) > 1000): # Assuming massive data dump
+                    if res.status_code == 200 and ('login' in path.lower() or 'auth' in path.lower()) and ('"token"' in text_lower or 'eyJ' in res.text) and 'error' not in text_lower:
                         return {"name": "NoSQL Injection (Auth/Data Bypass)", "severity": "Critical", "description": f"Endpoint {path} bypassed logic with NoSQL payload '{p}'.", "cvss": 9.8, "owasp": "API8:2023 Security Misconfiguration"}
                         
                 elif inj_type == "XSS":
@@ -265,7 +278,8 @@ def check_injection(method, path, base_url, auth_headers, oast_url=None):
                         return {"name": "Reflected Cross-Site Scripting (XSS)", "severity": "Medium", "description": f"Endpoint {path} reflected unsafe script payload.", "cvss": 6.1, "owasp": "API8:2023 Security Misconfiguration"}
                         
                 elif inj_type == "CmdInj":
-                    if "uid=" in text_lower or "root:" in text_lower or ("127.0.0.1" in text_lower and "ping" not in str(p)):
+                    # Strict Regex to prevent False Positives from reflected payloads or native JS variables
+                    if re.search(r'uid=\d+\(', text_lower) or re.search(r'root:.*:0:0:', text_lower):
                         return {"name": "OS Command Injection", "severity": "Critical", "description": f"Endpoint {path} executed system command '{p}'.", "cvss": 10.0, "owasp": "API8:2023 Security Misconfiguration"}
             except requests.exceptions.ReadTimeout:
                 if inj_type in ["SQLi", "CmdInj", "NoSQLi"] and ("sleep" in str(p).lower() or "delay" in str(p).lower() or "ping" in str(p).lower()):
@@ -290,11 +304,11 @@ def check_ssrf(method, path, base_url, auth_headers, oast_url=None):
             if method in ['post', 'put', 'patch']:
                 url = _build_url(base_url, path)
                 json_payload = {param: p for param in ssrf_params}
-                res = requests.request(method, url, json=json_payload, headers=auth_headers, timeout=3)
+                res = GLOBAL_SESSION.request(method, url, json=json_payload, headers=auth_headers, timeout=3)
             else:
                 query_string = "&".join([f"{param}={p}" for param in ssrf_params])
                 url = _build_url(base_url, f"{generate_mock_param(path)}?{query_string}")
-                res = requests.request(method, url, headers=auth_headers, timeout=3)
+                res = GLOBAL_SESSION.request(method, url, headers=auth_headers, timeout=3)
                 
             text_lower = res.text.lower()
             
@@ -318,13 +332,13 @@ def check_rate_limit(method, path, base_url, auth_headers):
         url = _build_url(base_url, re.sub(r'\{.*?\}', '1', path))
         
         # Pre-flight check: only blast endpoints that actually exist
-        preflight_res = requests.request(method, url, headers=auth_headers, timeout=3)
+        preflight_res = GLOBAL_SESSION.request(method, url, headers=auth_headers, timeout=3)
         if preflight_res.status_code in [404, 405]: 
             return None
             
         requests_sent = 1
         for _ in range(49):
-            res = requests.request(method, url, headers=auth_headers, timeout=2)
+            res = GLOBAL_SESSION.request(method, url, headers=auth_headers, timeout=2)
             requests_sent += 1
             if res.status_code == 429: return None # Properly rate limited
             
@@ -345,7 +359,7 @@ def check_sensitive_data(method, path, base_url, auth_headers):
     }
     try:
         url = _build_url(base_url, re.sub(r'\{.*?\}', '1', path))
-        res = requests.get(url, headers=auth_headers, timeout=5)
+        res = GLOBAL_SESSION.get(url, headers=auth_headers, timeout=5)
         found = [k for k, v in patterns.items() if re.search(v, res.text)]
         if "IP Address Leak" in found and ("127.0.0.1" in res.text or "172." in res.text):
             found.remove("IP Address Leak")
@@ -364,7 +378,7 @@ def check_mass_assignment(method, path, base_url, auth_headers):
     try:
         url = _build_url(base_url, generate_mock_param(path))
         for payload in payloads:
-            res = requests.request(method, url, json=payload, headers=auth_headers, timeout=5)
+            res = GLOBAL_SESSION.request(method, url, json=payload, headers=auth_headers, timeout=5)
             if res.status_code in [200, 201, 202] and ("admin" in res.text.lower() or "premium" in res.text.lower()):
                 return {"name": "Potential Mass Assignment", "severity": "Medium", "description": f"Endpoint {method.upper()} {path} accepted a privileged payload and reflected successful state change.", "cvss": 6.5, "owasp": "API3:2023 Broken Object Property Level Auth"}
     except: pass
@@ -378,13 +392,13 @@ def check_hidden_parameters(method, path, base_url, auth_headers):
     hidden_params = ['admin=true', 'debug=1', 'test=1', 'role=admin', 'user_id=1', 'id=1']
     try:
         url_base = _build_url(base_url, generate_mock_param(path))
-        baseline_res = requests.get(url_base, headers=auth_headers, timeout=5)
+        baseline_res = GLOBAL_SESSION.get(url_base, headers=auth_headers, timeout=5)
         baseline_len = len(baseline_res.text)
         baseline_status = baseline_res.status_code
 
         for param in hidden_params:
             url_fuzz = f"{url_base}?{param}" if '?' not in url_base else f"{url_base}&{param}"
-            fuzz_res = requests.get(url_fuzz, headers=auth_headers, timeout=5)
+            fuzz_res = GLOBAL_SESSION.get(url_fuzz, headers=auth_headers, timeout=5)
             
             if fuzz_res.status_code == 200 and baseline_status != 200 and fuzz_res.status_code not in [404, 400]:
                 return {"name": "Hidden Parameter Discovered (Bypass)", "severity": "High", "description": f"Endpoint {path} reacted to hidden parameter '{param}', changing status from {baseline_status} to 200.", "cvss": 7.5, "owasp": "API3:2023 Broken Object Property Level Auth"}
@@ -400,7 +414,7 @@ def check_unsafe_methods(path, base_url):
     try:
         url = _build_url(base_url, path)
         for method in ["TRACE", "TRACK", "DEBUG"]:
-            res = requests.request(method, url, timeout=5)
+            res = GLOBAL_SESSION.request(method, url, timeout=5)
             if res.status_code == 200 and ("Via" in res.headers or "TRACE" in res.text or method in res.text):
                 return {"name": f"Unsafe HTTP Method ({method})", "severity": "Low", "description": f"Server actively enabled {method} method on {path}.", "cvss": 3.7, "owasp": "API8:2023 Security Misconfiguration"}
     except: pass
@@ -441,7 +455,7 @@ def check_debug_endpoints(base_url):
     for p in paths:
         try:
             url = f"{clean_base}{p}"
-            res = requests.get(url, timeout=3)
+            res = GLOBAL_SESSION.get(url, timeout=3)
             if res.status_code == 200:
                 html_lower = res.text.lower()
                 is_login = False
@@ -482,12 +496,56 @@ def check_cors_policy(base_url):
         clean_base = base_url.rstrip('/')
         headers = {'Origin': 'https://evil-attacker.com'}
         # Active CORS checking
-        res = requests.options(clean_base, headers=headers, timeout=5)
+        res = GLOBAL_SESSION.options(clean_base, headers=headers, timeout=5)
         acao = res.headers.get('Access-Control-Allow-Origin', '')
         if acao == '*' or acao == 'https://evil-attacker.com':
             return {"name": "Insecure CORS Policy (Dynamic)", "severity": "Medium", "description": f"The server explicitly allowed cross-origin requests from an untrusted origin: Access-Control-Allow-Origin: {acao}", "cvss": 6.5, "owasp": "API8:2023 Security Misconfiguration"}
     except: pass
     return None
+
+def run_osint_recon(base_url, logger=None):
+    """
+    Queries the Wayback Machine CDX API to find historical URLs for the target domain.
+    Filters out static assets and returns a list of potential API endpoints.
+    """
+    osint_paths = []
+    try:
+        domain = urlparse(base_url).netloc
+        if not domain or "localhost" in domain or "127.0.0.1" in domain:
+            return []
+            
+        if logger: logger(f"  [*] OSINT Engine: Querying Wayback Machine for {domain}...")
+        
+        cdx_url = f"http://web.archive.org/cdx/search/cdx?url=*.{domain}/*&output=json&fl=original&collapse=urlkey&limit=5000"
+        res = GLOBAL_SESSION.get(cdx_url, timeout=15)
+        
+        if res.status_code == 200:
+            data = res.json()
+            # data is a list of lists: [["original"], ["http://example.com/api/v1/users"], ...]
+            if len(data) > 1:
+                urls = [item[0] for item in data[1:]]
+                for u in urls:
+                    try:
+                        parsed = urlparse(u)
+                        path = parsed.path
+                        # Strict filtering to ignore static files and root paths
+                        if not path or path == '/': continue
+                        if re.search(r'\.(jpg|jpeg|png|gif|svg|css|js|woff|woff2|ttf|eot|ico|pdf|zip|tar|gz)$', path, re.IGNORECASE):
+                            continue
+                            
+                        # Look for API-like paths
+                        if '/api/' in path.lower() or 'graphql' in path.lower() or path.endswith('.json'):
+                            osint_paths.append(path)
+                    except: pass
+                    
+        osint_paths = list(set(osint_paths))
+        if logger and osint_paths:
+            logger(f"  [+] OSINT Engine: Extracted {len(osint_paths)} historical API paths from Internet Archive.")
+            
+    except Exception as e:
+        if logger: logger(f"  [-] OSINT Engine failed: {str(e)}")
+        
+    return osint_paths
 
 def find_hidden_api_endpoints(base_url, auth_headers=None, baseline=None, logger=None):
     found_vulns = []
@@ -499,7 +557,7 @@ def find_hidden_api_endpoints(base_url, auth_headers=None, baseline=None, logger
 
     # 1. Robots.txt / Sitemap Recon
     try:
-        robots_res = requests.get(f"{clean_base}/robots.txt", timeout=3)
+        robots_res = GLOBAL_SESSION.get(f"{clean_base}/robots.txt", timeout=3)
         if robots_res.status_code == 200:
             disallowed = re.findall(r'Disallow:\s*(/.*)', robots_res.text)
             for d in disallowed:
@@ -510,12 +568,12 @@ def find_hidden_api_endpoints(base_url, auth_headers=None, baseline=None, logger
 
     # 2. Extract from Javascript files (Crawling frontend SPA)
     try:
-        root_res = requests.get(clean_base, timeout=5)
+        root_res = GLOBAL_SESSION.get(clean_base, timeout=5)
         scripts = re.findall(r'<script\s+[^>]*src=["\']([^"\']+)["\']', root_res.text)
         for script in scripts[:5]:  # Analyze top 5 JS bundles
             s_url = script if script.startswith('http') else f"{clean_base}/{script.lstrip('/')}"
             try:
-                s_res = requests.get(s_url, timeout=3)
+                s_res = GLOBAL_SESSION.get(s_url, timeout=3)
                 if s_res.status_code == 200:
                     api_paths = set(re.findall(r'["\'](/api/(?:v[1-3]/)?[a-zA-Z0-9_\-/]+)["\']', s_res.text))
                     for ap in api_paths:
@@ -523,6 +581,9 @@ def find_hidden_api_endpoints(base_url, auth_headers=None, baseline=None, logger
                         found_endpoints.append(f"POST {ap}")
             except: pass
     except: pass
+
+    # 2.5 OSINT Shadow API Discovery
+    osint_paths = run_osint_recon(clean_base, logger)
 
     # 3. Enhanced API Fuzzing Dictionary (Massive Enterprise Wordlist)
     fuzz_paths = [
@@ -563,11 +624,13 @@ def find_hidden_api_endpoints(base_url, auth_headers=None, baseline=None, logger
         '/v1.1', '/v1.2', '/api/v1.1', '/api/v1.0'
     ]
     
+    fuzz_paths.extend(osint_paths)
+    
     to_fuzz = list(set([p.split(" ")[1] if " " in p else p for p in found_endpoints] + fuzz_paths))
     
     for p in to_fuzz:
         try:
-            res = requests.get(f"{clean_base}{p}", headers=auth_headers, timeout=2)
+            res = GLOBAL_SESSION.get(f"{clean_base}{p}", headers=auth_headers, timeout=2)
             is_json = 'application/json' in res.headers.get('Content-Type', '').lower()
             
             # Reachable API
@@ -715,8 +778,9 @@ def check_credential_stuffing(login_url, logger=None):
 # ==============================================================================
 def start_scan(spec_content, base_url, auth_headers, scan_options=None, logger=None, report_id=None):
     def log(msg):
-        print(msg)
-        if logger: logger(msg)
+        with scan_lock:
+            print(msg)
+            if logger: logger(msg)
 
     if scan_options is None:
         scan_options = {'bola': True, 'auth': True, 'injection': True, 'ratelimit': True, 'jwt': True, 'debug': True}
@@ -741,6 +805,8 @@ def start_scan(spec_content, base_url, auth_headers, scan_options=None, logger=N
         endpoints = report.get("endpoints", [])
         log(f"[+] Successfully parsed {len(endpoints)} endpoints.")
         
+    is_bfla_test = False
+    
     # ==========================================================================
     # ENTERPRISE AUTH CRAWLER LOGIC
     # ==========================================================================
@@ -811,86 +877,94 @@ def start_scan(spec_content, base_url, auth_headers, scan_options=None, logger=N
             report["vulnerabilities"].append(vuln)
             log(f"     [!] Found: Weak JWT Config")
     
-    # --- Run Endpoint Checks (Loop) ---
+    # --- Turbo-Charged Concurrency Engine ---
     if len(endpoints) > 0:
-        for endpoint_string in endpoints:
+        endpoints_scanned = 0
+        total_endpoints = len(endpoints)
+        global_pause = False
+        endpoint_failures = {} # For Circuit Breaker
+
+        def scan_endpoint_task(endpoint_string):
+            nonlocal endpoints_scanned, global_pause, auth_headers
+            
             # --- CHECK STOP SIGNAL ---
             if report_id:
                 from .models import ScanReport
                 if ScanReport.objects.get(id=report_id).status == "Stopped":
-                    log("[!] Scan stopped by user command.")
-                    report['status'] = "Stopped"
-                    return report
-            # -------------------------
+                    return
+            
+            if not endpoint_string or " " not in endpoint_string: return
+            method, path = endpoint_string.split(" ", 1)
+            method = method.lower()
+            
+            # Circuit Breaker
+            if endpoint_failures.get(path, 0) >= 3:
+                return
+                
+            # Anti-DDoS Global Pause
+            while global_pause:
+                time.sleep(1)
 
             try:
-                if not endpoint_string or " " not in endpoint_string: continue
-                method, path = endpoint_string.split(" ", 1)
-                method = method.lower()
-                
                 # --- AUTO-REFRESH KEEP-ALIVE ---
                 if scan_options and scan_options.get('auth_login_url') and admin_user:
                     try:
                         ping_url = f"{base_url.rstrip('/')}{path if path.startswith('/') else '/' + path}"
-                        ping_res = requests.request(method, ping_url, headers=auth_headers, timeout=2)
-                        if ping_res.status_code == 401:
-                            log("[!] Auth Crawler: 401 Unauthorized detected! Token expired. Refreshing...")
-                            refreshed = perform_automated_login(login_url, admin_user, admin_pass, auth_type, logger)
-                            if refreshed:
-                                auth_headers = refreshed
-                                log("[+] Auth Crawler: Token refreshed successfully. Resuming attack...")
-                    except: pass
-                
+                        ping_res = GLOBAL_SESSION.request(method, ping_url, headers=auth_headers, timeout=2)
+                        
+                        if ping_res.status_code == 429:
+                            if not global_pause:
+                                log(f"[!] Anti-DDoS: Rate Limit 429 Hit on {path}. Pausing entire scanner for 5 seconds...")
+                                global_pause = True
+                                time.sleep(5)
+                                global_pause = False
+                                
+                        elif ping_res.status_code == 401:
+                            with scan_lock:
+                                log("[!] Auth Crawler: 401 Unauthorized detected! Token expired. Refreshing...")
+                                refreshed = perform_automated_login(login_url, admin_user, admin_pass, auth_type, logger)
+                                if refreshed:
+                                    auth_headers = refreshed
+                                    log("[+] Auth Crawler: Token refreshed successfully.")
+                    except requests.exceptions.RequestException:
+                        with scan_lock:
+                            endpoint_failures[path] = endpoint_failures.get(path, 0) + 1
+                        pass
+
                 log(f"  -> Scanning {method.upper()} {path} ...")
 
+                vulns_found = []
+                
                 if scan_options.get('auth'):
                     vuln = check_broken_authentication(method, path, base_url, logger)
-                    if vuln and vuln not in report["vulnerabilities"]:
-                        report["vulnerabilities"].append(vuln)
-                        log(f"     [!] Found: Broken Authentication")
+                    if vuln: vulns_found.append(vuln)
 
                 if scan_options.get('bola') and method == 'get' and auth_headers:
                     vuln = check_bola_vulnerability(method, path, base_url, auth_headers)
-                    if vuln and vuln not in report["vulnerabilities"]:
-                        report["vulnerabilities"].append(vuln)
-                        log(f"     [!] Found: BOLA")
+                    if vuln: vulns_found.append(vuln)
 
                 if scan_options.get('injection'):
                     vuln = check_injection(method, path, base_url, auth_headers, oast_url)
-                    if vuln and vuln not in report["vulnerabilities"]:
-                        report["vulnerabilities"].append(vuln)
-                        log(f"     [!] Found: SQL Injection")
+                    if vuln: vulns_found.append(vuln)
 
                 if scan_options.get('ratelimit'):
                     vuln = check_rate_limit(method, path, base_url, auth_headers)
-                    if vuln and vuln not in report["vulnerabilities"]:
-                        report["vulnerabilities"].append(vuln)
-                        log(f"     [!] Found: Rate Limit Issue")
+                    if vuln: vulns_found.append(vuln)
 
                 vuln = check_ssrf(method, path, base_url, auth_headers, oast_url)
-                if vuln and vuln not in report["vulnerabilities"]:
-                    report["vulnerabilities"].append(vuln)
-                    log(f"     [!] Found: SSRF")
+                if vuln: vulns_found.append(vuln)
 
                 vuln = check_sensitive_data(method, path, base_url, auth_headers)
-                if vuln and vuln not in report["vulnerabilities"]:
-                    report["vulnerabilities"].append(vuln)
-                    log(f"     [!] Found: Data Leak")
+                if vuln: vulns_found.append(vuln)
                     
                 vuln = check_hidden_parameters(method, path, base_url, auth_headers)
-                if vuln and vuln not in report["vulnerabilities"]:
-                    report["vulnerabilities"].append(vuln)
-                    log(f"     [!] Found: Hidden Parameter")
+                if vuln: vulns_found.append(vuln)
 
                 vuln = check_mass_assignment(method, path, base_url, auth_headers)
-                if vuln and vuln not in report["vulnerabilities"]:
-                    report["vulnerabilities"].append(vuln)
-                    log(f"     [!] Found: Mass Assignment")
+                if vuln: vulns_found.append(vuln)
 
                 vuln = check_unsafe_methods(path, base_url)
-                if vuln and vuln not in report["vulnerabilities"]:
-                    report["vulnerabilities"].append(vuln)
-                    log(f"     [!] Found: Unsafe HTTP Method")
+                if vuln: vulns_found.append(vuln)
                     
                 # --- PRIVILEGE ESCALATION MATRIX (BFLA) ---
                 if is_bfla_test and ('admin' in path.lower() or 'system' in path.lower() or 'private' in path.lower() or method in ['post', 'put', 'delete']):
@@ -901,25 +975,45 @@ def start_scan(spec_content, base_url, auth_headers, scan_options=None, logger=N
                         
                         if low_priv_headers:
                             bfla_url = f"{base_url.rstrip('/')}{path if path.startswith('/') else '/' + path}"
-                            bfla_res = requests.request(method, bfla_url, headers=low_priv_headers, timeout=3)
+                            bfla_res = GLOBAL_SESSION.request(method, bfla_url, headers=low_priv_headers, timeout=3)
                             
-                            # If Low-Privilege user successfully accesses an admin endpoint
                             if bfla_res.status_code in [200, 201, 202, 204]:
-                                bfla_vuln = {
+                                vulns_found.append({
                                     "name": "Broken Function Level Authorization (BFLA)", 
                                     "severity": "Critical", 
                                     "description": f"Privilege Escalation Matrix detected BFLA. Low privilege user '{low_priv_user}' successfully executed {method.upper()} on High privilege endpoint {path} (Status: {bfla_res.status_code}). [Violates API5:2023]", 
                                     "cvss": 9.0, 
                                     "owasp": "API5:2023 Broken Function Level Authorization"
-                                }
-                                if bfla_vuln not in report["vulnerabilities"]:
-                                    report["vulnerabilities"].append(bfla_vuln)
-                                    log(f"     [!] CRITICAL: BFLA Privilege Escalation Detected on {path}!")
-                    except Exception as e:
+                                })
+                                log(f"     [!] CRITICAL: BFLA Privilege Escalation Detected on {path}!")
+                    except Exception:
                         pass
+                        
+                # Append found vulnerabilities safely
+                with scan_lock:
+                    for v in vulns_found:
+                        if v not in report["vulnerabilities"]:
+                            report["vulnerabilities"].append(v)
+                            log(f"     [!] Found: {v['name']}")
+                            
+                    endpoints_scanned += 1
+                    percent = int((endpoints_scanned / total_endpoints) * 100)
+                    if endpoints_scanned % max(1, int(total_endpoints/10)) == 0 or endpoints_scanned == total_endpoints:
+                        log(f"  [Progress] {endpoints_scanned}/{total_endpoints} Endpoints Scanned ({percent}%)")
 
+            except requests.exceptions.RequestException:
+                with scan_lock:
+                    endpoint_failures[path] = endpoint_failures.get(path, 0) + 1
+                    if endpoint_failures[path] >= 3:
+                        log(f"  [!] Circuit Breaker: Endpoint {path} failed 3 times. Skipping.")
             except Exception as e:
                 log(f"     [!] Error scanning {path}: {e}")
+
+        # Execute using ThreadPoolExecutor
+        log(f"[*] Launching Turbo-Charged Engine (15 Threads)...")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
+            executor.map(scan_endpoint_task, endpoints)
+            
     else:
         log("[*] No endpoints to scan. Skipping endpoint-specific tests.")
 
