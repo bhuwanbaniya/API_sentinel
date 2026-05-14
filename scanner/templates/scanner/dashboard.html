@@ -67,7 +67,7 @@
             {% for report in reports|slice:":5" %}
                 <div class="feed-item" style="padding: 16px 0; border-bottom: 1px solid var(--card-border);">
                     <div class="feed-item-header">
-                        <span class="severity {% if report.status == 'Success' %}sev-low{% else %}sev-high{% endif %}">{{ report.status }}</span>
+                        <span class="severity {% if report.status == 'Completed' or report.status == 'Success' %}sev-low{% else %}sev-high{% endif %}">{{ report.status }}</span>
                         <span class="feed-time">{{ report.scan_date|date:"Y-m-d H:i" }}</span>
                     </div>
                     <div class="feed-item-title">{{ report.target_url|truncatechars:60 }}</div>

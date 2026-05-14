@@ -14,6 +14,9 @@
     <div style="display: flex; gap: 10px; align-items: center;">
         <a href="{% url 'scan_history' %}" class="btn btn-secondary" style="font-size: 13px; padding: 8px 15px;">&larr; Back to History</a>
         <div style="display: flex; gap: 5px;">
+            <a href="{% url 'export_executive' report.id %}" class="btn" style="background: #58a6ff; font-size: 13px; padding: 8px 15px;">
+                Executive Report
+            </a>
             <a href="{% url 'download_pdf' report.id %}" class="btn" style="background: #40A8A8; font-size: 13px; padding: 8px 15px;">
                 Download PDF
             </a>
@@ -29,10 +32,33 @@
         <h3 style="margin: 0; padding-bottom: 0; border: none; font-size: 1.2rem;">Target: {{ report.target_url }}</h3>
         <p style="margin: 5px 0 0 0; color: var(--text-muted); font-size: 13px;">Executed on: {{ report.scan_date }}</p>
     </div>
-    <div class="badge severity-{% if report.status == 'Success' %}low{% else %}high{% endif %}" style="font-size: 1rem; padding: 8px 15px;">
+    <div class="badge severity-{% if report.status == 'Completed' or report.status == 'Success' %}low{% else %}high{% endif %}" style="font-size: 1rem; padding: 8px 15px;">
         STATUS: {{ report.status|upper }}
     </div>
 </div>
+
+{% if mitre_summary and mitre_summary.total > 0 %}
+<div class="card" style="margin-bottom: 25px;">
+    <h3 style="margin: 0 0 10px 0; padding-bottom: 0; border: none; font-size: 1rem; color: var(--text-main);">
+        🎯 MITRE ATT&amp;CK Coverage
+        <span style="font-size: 12px; color: var(--text-muted); font-weight: normal; margin-left: 8px;">
+            {{ mitre_summary.total }} finding{{ mitre_summary.total|pluralize }} across {{ mitre_summary.by_tactic|length }} tactic{{ mitre_summary.by_tactic|length|pluralize }}
+        </span>
+    </h3>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+        {% for tech in mitre_summary.by_technique %}
+            <a href="{{ tech.url }}" target="_blank" rel="noopener"
+               title="{{ tech.tactic }} — {{ tech.name }} ({{ tech.count }} finding{{ tech.count|pluralize }})"
+               style="text-decoration: none; display: inline-block; padding: 6px 10px; border-radius: 4px; font-size: 12px; font-weight: 500;
+                      background: {% if tech.severity == 'Critical' %}#8B0000{% elif tech.severity == 'High' %}#E54F4F{% elif tech.severity == 'Medium' %}#F0943A{% elif tech.severity == 'Low' %}#40A8A8{% else %}#444{% endif %};
+                      color: white; border: 1px solid rgba(255,255,255,0.15);">
+                {{ tech.id }} <span style="opacity: 0.85; font-weight: normal;">— {{ tech.name }}</span>
+                <span style="background: rgba(0,0,0,0.25); border-radius: 10px; padding: 1px 6px; margin-left: 5px; font-size: 11px;">{{ tech.count }}</span>
+            </a>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
 
 <div class="dashboard-grid" style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px;">
     <div class="findings-card">
@@ -49,8 +75,14 @@
                             {% if vuln.cvss %}
                             <span style="margin-left: 5px; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; background: {% if vuln.cvss >= 9.0 %}#8B0000{% elif vuln.cvss >= 7.0 %}#E54F4F{% elif vuln.cvss >= 4.0 %}#F0943A{% else %}#40A8A8{% endif %}; color: white; display: inline-block;">CVSS {{ vuln.cvss }}</span>
                             {% endif %}
+                            {% if vuln.confidence %}
+                            <span title="Verifier confidence: {{ vuln.confidence }}/100" style="margin-left: 5px; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; background: {% if vuln.confidence >= 90 %}#1f7a3a{% elif vuln.confidence >= 70 %}#2d8b6e{% elif vuln.confidence >= 50 %}#7a6b1f{% else %}#777{% endif %}; color: white; display: inline-block;">CONF {{ vuln.confidence }}</span>
+                            {% endif %}
                             {% if vuln.owasp %}
                             <span style="margin-left: 5px; padding: 2px 6px; border-radius: 4px; font-size: 11px; background: #2B3544; color: #acc5e3; border: 1px solid #4a5c75; display: inline-block;">{{ vuln.owasp }}</span>
+                            {% endif %}
+                            {% if vuln.mitre_attack %}
+                            <a href="{{ vuln.mitre_attack.url }}" target="_blank" rel="noopener" title="{{ vuln.mitre_attack.tactic }} — {{ vuln.mitre_attack.name }}" style="margin-left: 5px; padding: 2px 6px; border-radius: 4px; font-size: 11px; background: #3b1f5e; color: #d9c2ff; border: 1px solid #5e3b8a; display: inline-block; text-decoration: none;">ATT&amp;CK {{ vuln.mitre_attack.id }}</a>
                             {% endif %}
                             <strong style="margin-left: 10px; font-size: 15px;">{{ vuln.name }}</strong>
                         </div>
@@ -58,31 +90,52 @@
                     
                     <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 15px; line-height: 1.5;">{{ vuln.description }}</p>
 
-                    <!-- --- MULTI-LANGUAGE REMEDIATION --- -->
-                    {% if vuln.advice %}
+                    <!-- --- MULTI-LANGUAGE REMEDIATION & VERIFICATION --- -->
+                    {% if vuln.advice or vuln.repro_curl %}
                     <div style="margin-top: 15px; background: #14161A; padding: 15px; border-radius: 4px; border: 1px solid var(--card-border);">
-                        <p style="color: var(--text-main); margin-bottom: 10px; font-size: 13px;"><strong>💡 Fix:</strong> {{ vuln.advice }}</p>
                         
-                        {% if vuln.snippets %}
                         <div class="tab-container" id="tabs-{{ forloop.counter }}">
                             <div class="tab-header">
-                                {% for lang, code in vuln.snippets.items %}
-                                <button class="tab-btn {% if forloop.first %}active{% endif %}" 
-                                        onclick="openTab(event, '{{ forloop.parentloop.counter }}-{{ forloop.counter }}')">
-                                    {{ lang }}
-                                </button>
-                                {% endfor %}
+                                <button class="tab-btn active" onclick="openTab(event, 'fix-{{ forloop.counter }}')">💡 Remediation</button>
+                                {% if vuln.repro_curl %}
+                                <button class="tab-btn" onclick="openTab(event, 'verify-{{ forloop.counter }}')">🛡️ Verification</button>
+                                {% endif %}
+                                {% if vuln.snippets %}
+                                    {% for lang, code in vuln.snippets.items %}
+                                    <button class="tab-btn" onclick="openTab(event, 'code-{{ forloop.parentloop.counter }}-{{ forloop.counter }}')">{{ lang }}</button>
+                                    {% endfor %}
+                                {% endif %}
                             </div>
 
-                            {% for lang, code in vuln.snippets.items %}
-                            <div id="{{ forloop.parentloop.counter }}-{{ forloop.counter }}-{{ forloop.index }}" 
-                                 class="tab-content {% if forloop.first %}active{% endif %}"
-                                 data-group="tabs-{{ forloop.parentloop.counter }}">
-                                <pre style="color: #40A8A8; margin: 0; font-family: 'Consolas', monospace; font-size: 12px; overflow-x: auto;">{{ code }}</pre>
+                            <!-- Remediation Tab -->
+                            <div id="fix-{{ forloop.counter }}" class="tab-content active">
+                                <p style="color: var(--text-main); margin-bottom: 0; font-size: 13px;"><strong>Fix:</strong> {{ vuln.advice|default:"No remediation guide available." }}</p>
                             </div>
-                            {% endfor %}
+
+                            <!-- Verification Tab -->
+                            {% if vuln.repro_curl %}
+                            <div id="verify-{{ forloop.counter }}" class="tab-content">
+                                <p style="color: var(--accent); margin-bottom: 10px; font-size: 13px;"><strong>Reproduction Command (Proof of Concept):</strong></p>
+                                <pre style="background: #000; padding: 10px; border-radius: 4px; color: #40A8A8; font-family: 'Consolas', monospace; font-size: 12px; border: 1px solid #333; margin-bottom: 15px;">{{ vuln.repro_curl }}</pre>
+                                
+                                <p style="color: var(--text-muted); font-size: 12px; margin-bottom: 5px;"><strong>Steps to Verify:</strong></p>
+                                <ul style="margin: 0; padding-left: 20px; font-size: 12px; color: var(--text-muted);">
+                                    {% for step in vuln.verification_steps %}
+                                        <li>{{ step }}</li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                            {% endif %}
+
+                            <!-- Code Snippets Tabs -->
+                            {% if vuln.snippets %}
+                                {% for lang, code in vuln.snippets.items %}
+                                <div id="code-{{ forloop.parentloop.counter }}-{{ forloop.counter }}" class="tab-content">
+                                    <pre style="color: #40A8A8; margin: 0; font-family: 'Consolas', monospace; font-size: 12px; overflow-x: auto;">{{ code }}</pre>
+                                </div>
+                                {% endfor %}
+                            {% endif %}
                         </div>
-                        {% endif %}
                     </div>
                     {% endif %}
                     <!-- ---------------------------------- -->
@@ -119,15 +172,18 @@
     // Tab Switching Logic
     function openTab(evt, tabId) {
         var container = evt.currentTarget.closest('.tab-container');
+        
+        // Hide all contents in this container
         var contents = container.querySelectorAll('.tab-content');
         contents.forEach(div => div.classList.remove('active'));
 
+        // Deactivate all buttons in this container
         var buttons = container.querySelectorAll('.tab-btn');
         buttons.forEach(btn => btn.classList.remove('active'));
 
+        // Show target content
+        document.getElementById(tabId).classList.add('active');
         evt.currentTarget.classList.add('active');
-        var index = Array.from(buttons).indexOf(evt.currentTarget);
-        contents[index].classList.add('active');
     }
 
     // Chart Logic

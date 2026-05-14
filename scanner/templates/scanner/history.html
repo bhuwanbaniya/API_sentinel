@@ -36,7 +36,7 @@
                 </td>
                 <td>{{ report.target_url|truncatechars:50 }}</td>
                 <td>
-                    {% if report.status == "Success" %}
+                    {% if report.status == "Completed" or report.status == "Success" %}
                         <span class="status-badge status-success">Success</span>
                     {% elif report.status == "Running" %}
                         <span class="status-badge status-running">Running...</span>

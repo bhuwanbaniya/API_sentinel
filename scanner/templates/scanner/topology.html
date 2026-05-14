@@ -9,17 +9,23 @@
         <p style="color: var(--text-muted); font-size: 0.9rem;">Visualizing attack surface and endpoint hierarchy.</p>
     </div>
     
-    <!-- Target Selection Dropdown -->
-    <form method="GET" action="{% url 'topology' %}" style="display: flex; gap: 10px; align-items: center;">
-        <select name="report_id" class="target-select" onchange="this.form.submit()">
-            {% if not selected_report_id %}
-            <option value="" selected disabled>Select a Target...</option>
-            {% endif %}
-            {% for t in unique_targets %}
-                <option value="{{ t.id }}" {% if t.id == selected_report_id %}selected{% endif %}>{{ t.url }}</option>
-            {% endfor %}
-        </select>
-    </form>
+    <div style="display: flex; gap: 10px; align-items: center;">
+        <input type="text" id="node-search" placeholder="Filter paths (e.g. admin)..." style="background: var(--bg-hover); color: var(--text-main); border: 1px solid var(--card-border); padding: 8px 12px; border-radius: 6px; outline: none; width: 220px; font-family: inherit;">
+        <button id="btn-attack-path" onclick="toggleAttackPaths()" style="background: transparent; color: #f85149; border: 1px solid #f85149; padding: 8px 12px; border-radius: 6px; cursor: pointer; transition: all 0.3s; display: flex; align-items: center; gap: 5px;"><i class="fas fa-fire"></i> Attack Paths</button>
+        <button onclick="exportNetwork()" style="background: transparent; color: var(--accent); border: 1px solid var(--accent); padding: 8px 12px; border-radius: 6px; cursor: pointer; transition: all 0.3s; display: flex; align-items: center; gap: 5px;"><i class="fas fa-download"></i> Export</button>
+        
+        <!-- Target Selection Dropdown -->
+        <form method="GET" action="{% url 'topology' %}" style="display: flex; margin: 0; align-items: center;">
+            <select name="report_id" class="target-select" onchange="this.form.submit()">
+                {% if not selected_report_id %}
+                <option value="" selected disabled>Select a Target...</option>
+                {% endif %}
+                {% for t in unique_targets %}
+                    <option value="{{ t.id }}" {% if t.id == selected_report_id %}selected{% endif %}>{{ t.url }}</option>
+                {% endfor %}
+            </select>
+        </form>
+    </div>
 </div>
 
 <div class="card" style="padding: 0; overflow: hidden; position: relative;">
@@ -42,6 +48,27 @@
             <i class="fas fa-lock" style="color: #6e7681;"></i>
             <span style="font-size: 0.8rem;">Blocked / Unreachable</span>
         </div>
+    </div>
+
+    <!-- Inspector Panel (Hidden by default) -->
+    <div id="node-inspector" style="display: none; position: absolute; right: 15px; top: 15px; width: 320px; z-index: 20; background: rgba(13, 17, 23, 0.95); padding: 15px; border-radius: 8px; border: 1px solid var(--accent); backdrop-filter: blur(10px); box-shadow: 0 0 20px rgba(0, 210, 255, 0.15);">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--card-border); padding-bottom: 10px; margin-bottom: 15px;">
+            <h4 style="margin: 0; color: var(--accent); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px;"><i class="fas fa-search-plus"></i> Node Inspector</h4>
+            <i class="fas fa-times" style="cursor: pointer; color: var(--text-muted); font-size: 1.1rem;" onclick="document.getElementById('node-inspector').style.display='none'"></i>
+        </div>
+        <div id="inspector-content" style="font-size: 0.85rem; color: var(--text-main); word-wrap: break-word; max-height: 400px; overflow-y: auto;">
+            <!-- Content injected via JS -->
+        </div>
+    </div>
+
+    <!-- Custom Context Menu -->
+    <div id="custom-context-menu" class="context-menu">
+        <div class="menu-header" id="menu-node-label">/api/v1/users</div>
+        <div class="menu-item" onclick="handleMenuAction('inspect')"><i class="fas fa-search"></i> Inspect Details</div>
+        <div class="menu-item" onclick="handleMenuAction('copy')"><i class="fas fa-copy"></i> Copy API Path</div>
+        <div class="menu-item" onclick="handleMenuAction('focus')"><i class="fas fa-crosshairs"></i> Focus Node</div>
+        <div class="menu-divider"></div>
+        <div class="menu-item danger" onclick="handleMenuAction('vuln')"><i class="fas fa-shield-alt"></i> Highlight Risks</div>
     </div>
 
     <!-- Graph Container -->
@@ -74,6 +101,55 @@
     .vis-network {
         outline: none;
     }
+    
+    /* Premium Context Menu Styling */
+    .context-menu {
+        display: none;
+        position: absolute;
+        z-index: 1000;
+        background: rgba(22, 27, 34, 0.9);
+        backdrop-filter: blur(10px);
+        border: 1px solid var(--card-border);
+        border-radius: 8px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        min-width: 180px;
+        padding: 5px 0;
+        animation: fadeIn 0.15s ease-out;
+    }
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(-5px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .menu-header {
+        padding: 8px 15px;
+        font-size: 0.75rem;
+        color: var(--accent);
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        border-bottom: 1px solid var(--card-border);
+        margin-bottom: 5px;
+        max-width: 250px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .menu-item {
+        padding: 10px 15px;
+        font-size: 0.85rem;
+        color: var(--text-main);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        transition: all 0.2s;
+    }
+    .menu-item:hover {
+        background: var(--bg-hover);
+        color: var(--accent);
+    }
+    .menu-item i { width: 16px; text-align: center; }
+    .menu-item.danger:hover { color: #f85149; }
+    .menu-divider { height: 1px; background: var(--card-border); margin: 5px 0; }
 </style>
 
 <!-- Vis.js Library -->
@@ -145,6 +221,279 @@
         };
 
         var network = new vis.Network(container, data, options);
+        var activeNodeId = null;
+
+        // 1. Interactive Node Inspector Logic
+        network.on("click", function (params) {
+            hideContextMenu();
+            if (params.nodes.length > 0) {
+                showInspector(params.nodes[0]);
+            } else {
+                document.getElementById('node-inspector').style.display = 'none';
+            }
+        });
+
+        // 2. Custom Right-Click Context Menu Logic
+        container.addEventListener('contextmenu', function(e) {
+            e.preventDefault();
+        });
+
+        network.on("oncontext", function (params) {
+            params.event.preventDefault();
+            var nodeId = network.getNodeAt(params.pointer.DOM);
+            
+            if (nodeId) {
+                activeNodeId = nodeId;
+                var nodeData = nodes.get(nodeId);
+                var menu = document.getElementById('custom-context-menu');
+                var label = document.getElementById('menu-node-label');
+                
+                label.innerText = nodeData.label;
+                menu.style.display = 'block';
+                menu.style.left = params.pointer.DOM.x + "px";
+                menu.style.top = params.pointer.DOM.y + "px";
+                
+                network.selectNodes([nodeId]);
+            } else {
+                hideContextMenu();
+            }
+        });
+
+        function hideContextMenu() {
+            document.getElementById('custom-context-menu').style.display = 'none';
+        }
+
+        window.handleMenuAction = function(action) {
+            if (!activeNodeId) return;
+            var nodeData = nodes.get(activeNodeId);
+            
+            if (action === 'inspect') {
+                showInspector(activeNodeId);
+            } else if (action === 'copy') {
+                navigator.clipboard.writeText(nodeData.label);
+                // Flash success state
+                var label = document.getElementById('menu-node-label');
+                var original = label.innerText;
+                label.innerText = "Copied!";
+                setTimeout(() => { label.innerText = original; hideContextMenu(); }, 1000);
+                return; // don't hide yet
+            } else if (action === 'focus') {
+                network.focus(activeNodeId, { scale: 1.2, animation: true });
+            } else if (action === 'vuln') {
+                showInspector(activeNodeId);
+                // If it's vulnerable, trigger a pulse effect
+                if (nodeData.group === 'vulnerable') {
+                    network.focus(activeNodeId, { scale: 1.5, animation: { duration: 1000, easingFunction: 'easeInOutQuad' } });
+                }
+            }
+            hideContextMenu();
+        };
+
+        function showInspector(nodeId) {
+            var nodeData = nodes.get(nodeId);
+            var inspector = document.getElementById('node-inspector');
+            var content = document.getElementById('inspector-content');
+            
+            var rawTitle = nodeData.title || 'No data available';
+            var formattedHtml = rawTitle.replace(/\n/g, '<br><br>')
+                .replace(/\[Critical\]/g, '<span style="color:#ff7b72;font-weight:bold;text-shadow:0 0 5px #ff7b72;">[CRITICAL]</span>')
+                .replace(/\[High\]/g, '<span style="color:#f85149;font-weight:bold;">[High]</span>')
+                .replace(/\[Medium\]/g, '<span style="color:#f0ad4e;font-weight:bold;">[Medium]</span>')
+                .replace(/\[Low\]/g, '<span style="color:#58a6ff;font-weight:bold;">[Low]</span>');
+            
+            content.innerHTML = `<div style="font-family: monospace; background: #010409; padding: 10px; border-radius: 5px; margin-bottom: 15px; border: 1px solid #30363d; font-size: 0.95rem; color: #58a6ff;">${nodeData.label}</div>
+                                 <div style="line-height: 1.5; padding-bottom: 10px;">${formattedHtml}</div>`;
+            
+            inspector.style.display = 'block';
+        }
+
+        // Hide menu on any drag or zoom
+        network.on("dragStart", hideContextMenu);
+        network.on("zoom", hideContextMenu);
+
+        // 2. Attack Path Highlighting Logic
+        var attackPathMode = false;
+        window.toggleAttackPaths = function() {
+            attackPathMode = !attackPathMode;
+            var btn = document.getElementById('btn-attack-path');
+            
+            if (attackPathMode) {
+                btn.style.background = 'rgba(248, 81, 73, 0.2)';
+                btn.innerHTML = '<i class="fas fa-times"></i> Clear Paths';
+                
+                var vulnNodes = rawNodes.filter(function(n) { return n.group === 'vulnerable'; }).map(function(n) { return n.id; });
+                
+                if (vulnNodes.length === 0) {
+                    alert("No vulnerabilities found in this graph to highlight.");
+                    toggleAttackPaths(); // reset
+                    return;
+                }
+                
+                var criticalPathNodes = new Set(vulnNodes);
+                var criticalPathEdges = new Set();
+                
+                var added = true;
+                while(added) {
+                    added = false;
+                    rawEdges.forEach(function(e) {
+                        if (criticalPathNodes.has(e.to) && !criticalPathNodes.has(e.from)) {
+                            criticalPathNodes.add(e.from);
+                            criticalPathEdges.add(e.id);
+                            added = true;
+                        }
+                        if (criticalPathNodes.has(e.to) && criticalPathNodes.has(e.from)) {
+                            criticalPathEdges.add(e.id);
+                        }
+                    });
+                }
+                
+                var updateNodes = [];
+                rawNodes.forEach(function(n) {
+                    var isCrit = criticalPathNodes.has(n.id);
+                    var newIcon = Object.assign({}, n.icon);
+                    var newFont = Object.assign({}, n.font);
+                    
+                    if (!isCrit) {
+                        newIcon.color = 'rgba(139, 148, 158, 0.2)'; // Faded grey
+                        newFont.color = 'rgba(139, 148, 158, 0.2)';
+                    }
+                    
+                    updateNodes.push({
+                        id: n.id,
+                        icon: newIcon,
+                        font: newFont,
+                        shadow: isCrit ? n.shadow : false
+                    });
+                });
+                
+                var updateEdges = [];
+                rawEdges.forEach(function(e) {
+                    var isCrit = criticalPathEdges.has(e.id);
+                    updateEdges.push({
+                        id: e.id,
+                        color: isCrit ? {color: '#f85149', highlight: '#ff7b72'} : {color: 'rgba(139, 148, 158, 0.1)'},
+                        width: isCrit ? 3 : 1
+                    });
+                });
+                
+                nodes.update(updateNodes);
+                edges.update(updateEdges);
+                
+            } else {
+                btn.style.background = 'transparent';
+                btn.innerHTML = '<i class="fas fa-fire"></i> Attack Paths';
+                
+                var updateNodes = rawNodes.map(function(n) {
+                    return { id: n.id, icon: n.icon, font: n.font, shadow: n.shadow };
+                });
+                var updateEdges = rawEdges.map(function(e) {
+                    return { id: e.id, color: e.color, width: e.width };
+                });
+                
+                nodes.update(updateNodes);
+                edges.update(updateEdges);
+            }
+        };
+
+        // 3. Graph Node Filtering Logic
+        document.getElementById('node-search').addEventListener('input', function(e) {
+            var searchTerm = e.target.value.toLowerCase();
+            var updateArray = [];
+            
+            // Collect matching nodes
+            rawNodes.forEach(function(n) {
+                var isMatch = (searchTerm === '' || n.label.toLowerCase().includes(searchTerm) || (n.title && n.title.toLowerCase().includes(searchTerm)));
+                
+                // Dim non-matching nodes
+                var opacity = isMatch ? 1.0 : 0.15;
+                
+                // Vis.js trick: to change opacity, we must update the color object dynamically
+                var newColor = Object.assign({}, n.color);
+                
+                updateArray.push({
+                    id: n.id, 
+                    hidden: !isMatch && searchTerm !== '',
+                });
+            });
+            nodes.update(updateArray);
+        });
     });
+
+    // 3. Export PNG Logic (Enhanced with Watermark & Background)
+    function exportNetwork() {
+        var srcCanvas = document.querySelector('#mynetwork canvas');
+        if (srcCanvas) {
+            // Create a temporary canvas
+            var tempCanvas = document.createElement('canvas');
+            tempCanvas.width = srcCanvas.width;
+            tempCanvas.height = srcCanvas.height;
+            var ctx = tempCanvas.getContext('2d');
+
+            // 1. Fill with Cyberpunk Dark Background
+            ctx.fillStyle = '#0d1117';
+            ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+
+            // 2. Draw the Topology Graph
+            ctx.drawImage(srcCanvas, 0, 0);
+
+            // 3. Add Professional Watermark & Metadata
+            var dateStr = new Date().toLocaleString();
+            var targetUrl = document.querySelector('.target-select option:checked').text;
+
+            ctx.font = 'bold 24px Arial';
+            ctx.fillStyle = '#00d2ff'; // Accent color
+            ctx.fillText('API Sentinel - Topology Report', 20, 40);
+            
+            ctx.font = '16px Arial';
+            ctx.fillStyle = '#c9d1d9'; // Text main
+            ctx.fillText('Target: ' + targetUrl, 20, 70);
+            ctx.fillText('Generated: ' + dateStr, 20, 95);
+
+            // 4. Draw the Node Status Legend on Exported Canvas
+            var legendX = 20;
+            var legendY = tempCanvas.height - 120;
+            
+            // Legend Background Panel
+            ctx.fillStyle = 'rgba(13, 17, 23, 0.9)';
+            ctx.fillRect(legendX - 10, legendY - 30, 250, 140);
+            ctx.strokeStyle = '#30363d';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(legendX - 10, legendY - 30, 250, 140);
+
+            // Legend Title
+            ctx.font = 'bold 14px Arial';
+            ctx.fillStyle = '#8b949e';
+            ctx.fillText('NODE STATUS LEGEND', legendX, legendY - 5);
+
+            // Root Node
+            ctx.fillStyle = '#00d2ff';
+            ctx.beginPath(); ctx.arc(legendX + 10, legendY + 20, 6, 0, 2*Math.PI); ctx.fill();
+            ctx.font = '14px Arial'; ctx.fillStyle = '#c9d1d9';
+            ctx.fillText('Root / Gateway', legendX + 30, legendY + 25);
+
+            // Safe Node
+            ctx.fillStyle = '#40A8A8';
+            ctx.beginPath(); ctx.arc(legendX + 10, legendY + 45, 6, 0, 2*Math.PI); ctx.fill();
+            ctx.fillText('Safe Endpoint', legendX + 30, legendY + 50);
+
+            // Vulnerable Node
+            ctx.fillStyle = '#f85149';
+            ctx.beginPath(); ctx.arc(legendX + 10, legendY + 70, 6, 0, 2*Math.PI); ctx.fill();
+            ctx.fillText('Vulnerable Endpoint', legendX + 30, legendY + 75);
+
+            // Blocked Node
+            ctx.fillStyle = '#6e7681';
+            ctx.beginPath(); ctx.arc(legendX + 10, legendY + 95, 6, 0, 2*Math.PI); ctx.fill();
+            ctx.fillText('Blocked / Unreachable', legendX + 30, legendY + 100);
+
+            // 5. Download the final composited image
+            var link = document.createElement('a');
+            link.download = 'API_Sentinel_Topology_' + Date.now() + '.png';
+            link.href = tempCanvas.toDataURL('image/png');
+            link.click();
+        } else {
+            alert("Canvas not found! Please wait for the graph to render.");
+        }
+    }
 </script>
 {% endblock %}

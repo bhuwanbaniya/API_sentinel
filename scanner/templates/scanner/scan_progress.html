@@ -52,7 +52,7 @@
                     terminal.scrollTop = terminal.scrollHeight;
                 }
                 // Redirect if finished
-                if (data.status === 'Success' || data.status === 'Failed' || data.status === 'Stopped') {
+                if (data.status === 'Completed' || data.status === 'Success' || data.status === 'Failed' || data.status === 'Stopped') {
                     setTimeout(() => {
                         window.location.href = `/history/${reportId}/`; 
                     }, 1500); 
