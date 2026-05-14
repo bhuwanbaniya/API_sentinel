@@ -20,6 +20,7 @@ urlpatterns = [
     path('history/delete/<int:report_id>/', views.delete_report_view, name='delete_report'),
     path('history/bulk-delete/', views.bulk_delete_reports_view, name='bulk_delete_reports'),
     path('history/<int:report_id>/pdf/', views.download_report_pdf, name='download_pdf'),
+    path('history/<int:report_id>/executive/', views.export_executive_report, name='export_executive'),
     path('history/<int:report_id>/sarif/', views.download_sarif, name='download_sarif'),
     path('scan/progress/<int:report_id>/', views.scan_progress_view, name='scan_progress'),
     path('api/scan-status/<int:report_id>/', views.scan_status_api, name='scan_status_api'),

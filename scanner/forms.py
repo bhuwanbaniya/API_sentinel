@@ -50,7 +50,12 @@ class APIScanForm(forms.Form):
     auth_header = forms.CharField(
         required=False,
         label='Authorization Header (e.g., "Authorization: Bearer your_token")',
-        widget=forms.TextInput(attrs={'size': '50', 'placeholder': 'Authorization: Bearer ey...'})
+        widget=forms.TextInput(attrs={'size': '50', 'placeholder': 'Authorization: Bearer User_A_Token'})
+    )
+    auth_header_secondary = forms.CharField(
+        required=False,
+        label='Secondary Auth Header (For Multi-Tenant BOLA/IDOR Testing)',
+        widget=forms.TextInput(attrs={'size': '50', 'placeholder': 'Authorization: Bearer User_B_Token'})
     )
     
     # --- AUTOMATED AUTH CRAWLER ---
