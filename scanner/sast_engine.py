@@ -34,23 +34,43 @@ class SASTScanner:
         ]
         
         # 2. Exposed Secrets
+        # NOTE: the "Generic Secret" pattern excludes obvious placeholders to cut
+        # false positives on test fixtures, env templates, and example code.
         secret_patterns = {
             "AWS Access Key": r"AKIA[0-9A-Z]{16}",
-            "Generic Secret/Password": r"(?i)(password|secret|api_key|token|client_secret)[\s]*[=:]\s*['\"]([^'\"]{8,})['\"]",
-            "Private Key": r"-----BEGIN (RSA|OPENSSH) PRIVATE KEY-----",
+            "Generic Secret/Password": (
+                r"(?i)(password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?token|"
+                r"auth[_-]?token|client[_-]?secret|private[_-]?key)\s*[=:]\s*"
+                r"['\"]("
+                r"(?!.*(?:your[_-]?|example|placeholder|xxxxxxxx|<.*?>|change[_-]?me|"
+                r"dummy|sample|test[_-]?value|password123|123456|abcdef|fakefake))"
+                r"[A-Za-z0-9_\-./+=]{12,})['\"]"
+            ),
+            "Private Key": r"-----BEGIN (RSA|OPENSSH|DSA|EC|PGP) PRIVATE KEY-----",
             "GitHub PAT": r"ghp_[0-9a-zA-Z]{36}",
+            "GitHub Fine-grained PAT": r"github_pat_[0-9a-zA-Z_]{82}",
             "Slack Token": r"xox[baprs]-[0-9]{12}-[0-9]{12}-[a-zA-Z0-9]{24}",
-            "Stripe API Key": r"sk_live_[0-9a-zA-Z]{24}",
-            "GCP API Key": r"AIza[0-9A-Za-z-_]{35}"
+            "Stripe API Key": r"sk_(live|test)_[0-9a-zA-Z]{24}",
+            "GCP API Key": r"AIza[0-9A-Za-z\-_]{35}",
+            "JWT Token": r"eyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}",
         }
-        
-        # 3. SQL Injection (Raw Queries without parameters)
-        # Matches cursor.execute("SELECT * FROM x WHERE id=" + id) or f"SELECT * FROM x WHERE id={id}"
+
+        # 3. SQL Injection (raw queries built via concatenation or f-strings)
+        # Tightened to require the concatenation/format token to be near a quoted
+        # SQL fragment, which dramatically reduces false positives on innocent
+        # cursor.execute(prepared_stmt, params) calls.
         sqli_patterns = [
-            r"cursor\.execute\s*\(\s*(f['\"].*?\{.*?\}|['\"].*?%.*?['\"]\s*%|.*?\+.*?)",
-            r"db\.query\s*\(\s*(f['\"].*?\{.*?\}|['\"].*?%.*?['\"]\s*%|.*?\+.*?)",
-            r"sequelize\.query\s*\(\s*['\"`].*?\$\{.*?\}",
-            r"ORM\.raw\s*\(\s*['\"`].*?\+.*?"
+            # cursor.execute("SELECT ... " + var)  or  ("... %s" % var)
+            r"cursor\.execute\s*\(\s*['\"][^'\"]*\s*['\"]\s*[%+]\s*",
+            # cursor.execute(f"SELECT ... {var} ...")
+            r"cursor\.execute\s*\(\s*f['\"][^'\"]*\{[^}]+\}",
+            # db.query(...) variants
+            r"db\.query\s*\(\s*['\"][^'\"]*['\"]\s*[%+]\s*",
+            r"db\.query\s*\(\s*f['\"][^'\"]*\{[^}]+\}",
+            # sequelize/JS template strings
+            r"sequelize\.query\s*\(\s*[`'\"][^`'\"]*\$\{",
+            # raw ORM concat
+            r"ORM\.raw\s*\(\s*['\"`][^'\"`]*['\"`]\s*\+\s*",
         ]
 
         # 4. Insecure CORS
