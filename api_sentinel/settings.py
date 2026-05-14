@@ -149,6 +149,12 @@ EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True') == 'True'
 EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', 'your_email@gmail.com')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', 'your_app_password')
 
+# --- OAST (Out-of-Band Application Security Testing) Configuration ---
+# The public base URL where target applications can reach this server.
+# For local testing this can stay as the dev server; for real out-of-band
+# detection, set OAST_PUBLIC_BASE_URL to your ngrok / public tunnel URL.
+OAST_PUBLIC_BASE_URL = os.environ.get('OAST_PUBLIC_BASE_URL', 'http://127.0.0.1:8000')
+
 JAZZMIN_SETTINGS = {
     "site_title": "API Sentinel Admin",
     "site_header": "API Sentinel",
