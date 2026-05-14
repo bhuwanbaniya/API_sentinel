@@ -203,7 +203,7 @@ def test_webhook_api(request):
 # ==============================================================================
 
 # Helper for Background Thread
-def run_scan_in_background(report_id, spec_content, base_url, auth_headers, scan_options, is_sast=False, git_url=None):
+def run_scan_in_background(report_id, spec_content, base_url, auth_headers, scan_options, is_sast=False, git_url=None, secondary_auth_headers=None):
     try:
         def db_logger(msg):
             try:
@@ -213,7 +213,7 @@ def run_scan_in_background(report_id, spec_content, base_url, auth_headers, scan
                 if not r.result_json: r.result_json = {}
                 r.result_json['scan_log'] = current_log
                 r.save()
-            except: pass
+            except Exception: pass
 
         if is_sast and git_url:
             with tempfile.TemporaryDirectory() as temp_dir:
@@ -231,7 +231,7 @@ def run_scan_in_background(report_id, spec_content, base_url, auth_headers, scan
                 results = start_sast_scan(temp_dir, scan_options, logger=db_logger, report_id=report_id)
                 db_logger("[*] Cleaning up temporary directory...")
         else:
-            results = start_scan(spec_content, base_url, auth_headers, scan_options, logger=db_logger, report_id=report_id)
+            results = start_scan(spec_content, base_url, auth_headers, scan_options, logger=db_logger, report_id=report_id, secondary_auth_headers=secondary_auth_headers)
         
         report = ScanReport.objects.get(id=report_id)
         if report.status == "Stopped": return
@@ -402,7 +402,7 @@ def run_scan_in_background(report_id, spec_content, base_url, auth_headers, scan
             r = ScanReport.objects.get(id=report_id)
             r.status = "Failed"
             r.save()
-        except: pass
+        except Exception: pass
 
 @login_required
 def dashboard(request):
@@ -459,6 +459,7 @@ def scan_view(request):
             target_url = form.cleaned_data.get('target_url')
             api_file = form.cleaned_data.get('api_file')
             auth_header = form.cleaned_data.get('auth_header')
+            auth_header_secondary = form.cleaned_data.get('auth_header_secondary')
             
             git_url = form.cleaned_data.get('git_url')
             
@@ -474,6 +475,7 @@ def scan_view(request):
                 'sast_sqli': form.cleaned_data.get('scan_sast_sqli'),
                 'sast_cors': form.cleaned_data.get('scan_sast_cors'),
                 'sast_ratelimit': form.cleaned_data.get('scan_sast_ratelimit'),
+                'smart_fuzz': request.POST.get('scan_smart_fuzz') == 'on',
                 
                 # Automated Auth Crawler Fields
                 'auth_login_url': form.cleaned_data.get('auth_login_url'),
@@ -488,6 +490,11 @@ def scan_view(request):
             if auth_header:
                 if ':' in auth_header: k, v = auth_header.split(':', 1); auth_headers[k.strip()] = v.strip()
                 else: auth_headers['Authorization'] = auth_header
+            
+            secondary_auth_headers = {}
+            if auth_header_secondary:
+                if ':' in auth_header_secondary: k, v = auth_header_secondary.split(':', 1); secondary_auth_headers[k.strip()] = v.strip()
+                else: secondary_auth_headers['Authorization'] = auth_header_secondary
             
             # --- HANDLE SAST SCAN ---
             if git_url:
@@ -520,7 +527,7 @@ def scan_view(request):
                     status="Running",
                     result_json={"scan_log": ["Initializing DAST engine..."]}
                 )
-                user_scan_pool.submit(run_scan_in_background, new_report.id, spec_content, base_url, auth_headers, scan_options, is_sast=False, git_url=None)
+                user_scan_pool.submit(run_scan_in_background, new_report.id, spec_content, base_url, auth_headers, scan_options, is_sast=False, git_url=None, secondary_auth_headers=secondary_auth_headers)
                 return redirect('scan_progress', report_id=new_report.id)
             else:
                 messages.error(request, "Scan failed: Invalid input.")
@@ -590,6 +597,22 @@ def report_detail_view(request, report_id):
         v_copy = v.copy()
         rem = get_remediation(v_copy.get('name', ''))
         if rem: v_copy.update(rem)
+        
+        # --- AUTOMATED VERIFICATION ENGINE ---
+        path = v_copy.get('path', '')
+        if path:
+            clean_base = report.target_url.rstrip('/')
+            method = "GET"
+            # Intelligence: If we got a 405, suggest testing with POST or another method
+            if "(Status: 405)" in v_copy.get('description', ''):
+                method = "POST"
+            
+            v_copy['repro_curl'] = f"curl -i -X {method} \"{clean_base}{path}\""
+            v_copy['verification_steps'] = [
+                f"1. Open your terminal or a tool like Postman.",
+                f"2. Execute the following command: {v_copy['repro_curl']}",
+                f"3. Verify if the response content or status code matches the description."
+            ]
         enhanced.append(v_copy)
 
     sev_counts = Counter(str(v.get('severity', 'Low')).title() for v in vulns)
@@ -598,7 +621,23 @@ def report_detail_view(request, report_id):
     
     chart = {'labels': [l for l in labels if sev_counts[l]>0], 'data': [sev_counts[l] for l in labels if sev_counts[l]>0], 'colors': [colors[l] for l in labels if sev_counts[l]>0]}
 
-    return render(request, 'scanner/report_detail.html', {'report': report, 'vulnerabilities': enhanced, 'endpoints': endpoints, 'chart_data': chart})
+    # MITRE ATT&CK heatmap: prefer cached summary on the report, else compute on the fly
+    mitre_summary = report.result_json.get('mitre_attack_summary')
+    if not mitre_summary:
+        try:
+            from .mitre import annotate_findings, build_heatmap
+            annotate_findings(enhanced)
+            mitre_summary = build_heatmap(enhanced)
+        except Exception:
+            mitre_summary = None
+
+    return render(request, 'scanner/report_detail.html', {
+        'report': report,
+        'vulnerabilities': enhanced,
+        'endpoints': endpoints,
+        'chart_data': chart,
+        'mitre_summary': mitre_summary,
+    })
 
 @login_required
 def delete_report_view(request, report_id):
@@ -661,11 +700,47 @@ def download_report_pdf(request, report_id):
     return response
 
 @login_required
+def export_executive_report(request, report_id):
+    report = get_object_or_404(ScanReport, pk=report_id, user=request.user)
+    vulns = report.result_json.get('vulnerabilities', [])
+    
+    enhanced = []
+    critical_count = 0
+    for v in vulns:
+        v_copy = v.copy()
+        rem = get_remediation(v_copy.get('name', ''))
+        if rem: v_copy.update(rem)
+        
+        # Add verification to executive report too
+        path = v_copy.get('path', '')
+        if path:
+            clean_base = report.target_url.rstrip('/')
+            v_copy['repro_curl'] = f"curl -i -X GET \"{clean_base}{path}\""
+
+        enhanced.append(v_copy)
+        if str(v.get('severity', '')).lower() == 'critical':
+            critical_count += 1
+
+    # Calculate risk score (same logic as dashboard)
+    sev_counts = Counter(str(v.get('severity', 'Low')).title() for v in vulns)
+    score = (sev_counts['High'] * 10) + (sev_counts['Medium'] * 5) + (sev_counts['Low'] * 2)
+    risk_score = min(10.0, score / 50.0) if len(vulns) > 0 else 0
+
+    context = {
+        'report': report,
+        'vulnerabilities': enhanced,
+        'total_count': len(vulns),
+        'critical_count': critical_count,
+        'risk_score': f"{risk_score:.1f}"
+    }
+    return render(request, 'scanner/report_pdf.html', context)
+
+@login_required
 def download_sarif(request, report_id):
     report = get_object_or_404(ScanReport, id=report_id, user=request.user)
     try:
         report_data = json.loads(report.result_json) if isinstance(report.result_json, str) else report.result_json
-    except:
+    except Exception:
         report_data = {"vulnerabilities": []}
 
     sarif = {
@@ -864,7 +939,10 @@ def topology_view(request):
                         is_vuln = False
                         vuln_details = []
                         for v in vulns:
-                            if current_path in v.get('description', '') or current_path in v.get('name', ''):
+                            # Precise matching: Check if v['path'] exactly matches current_path
+                            # or if description explicitly mentions it as a vulnerability
+                            v_path = v.get('path', '')
+                            if v_path == current_path or (v_path == '' and current_path in v.get('description', '')):
                                 is_vuln = True
                                 vuln_details.append(f"[{v.get('severity')}] {v.get('name')}")
                         
